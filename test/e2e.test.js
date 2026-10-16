@@ -4,6 +4,7 @@ const { chromium } = require('playwright');
 const http = require('http'), fs = require('fs'), path = require('path');
 const dist = path.resolve(__dirname, '../dist'), fx = path.join(__dirname, 'fixtures');
 const srv = http.createServer((q, r) => { const f = path.join(dist, decodeURIComponent(q.url.split('?')[0])); fs.existsSync(f) && fs.statSync(f).isFile() ? (r.writeHead(200, { 'Content-Type': f.endsWith('.html') ? 'text/html' : 'application/octet-stream' }), r.end(fs.readFileSync(f))) : (r.writeHead(404), r.end()); }).listen(8765);
+let check0 = '';
 (async () => {
   const b = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {});
   const p = await b.newPage({ viewport: { width: 1280, height: 900 } }); const errors = [];
@@ -31,7 +32,7 @@ const srv = http.createServer((q, r) => { const f = path.join(dist, decodeURICom
   await shot('1-getting-started');
   await p.check('#introHide'); await p.click('[data-act=introPick]');
   await p.waitForFunction(() => RLC.dirs.roms && !RLC.scanning && RLC.catalog, null, { timeout: 20000 });
-  await p.waitForTimeout(800); await shot('2-library');
+  check0 = await p.textContent('#main'); await p.click('nav [data-tab=library]'); await p.waitForTimeout(300); await shot('2-library');
   const lib = await p.textContent('#main');
   await p.evaluate(async () => { const r = await navigator.storage.getDirectory(); await (await r.getDirectoryHandle('roms')).getDirectoryHandle('n64', { create: true }); });
   await p.click('[data-act=scanAll]'); await p.waitForFunction(() => RLC.scan.n64 && !RLC.scanning);
@@ -50,8 +51,8 @@ const srv = http.createServer((q, r) => { const f = path.join(dist, decodeURICom
   // Reload: getting started must stay hidden, config must be re-read.
   await p.reload(); await p.waitForTimeout(1200);
   const introAfter = await p.isVisible('#intro .modal');
-  const result = { showEmpty, showRoms, showAll, libraryShow: cfg.library, errors, libHasNes: lib.includes('Nintendo Entertainment System'), nesInstalled: nesRows, cfgTopN: cfg.topN, showGettingStarted: cfg.showGettingStarted, paths: cfg.paths, cache, introAfterReload: introAfter, catalog: await p.evaluate(() => RLC.catalog && RLC.catalog.counts) };
+  const result = { firstRunCheck: check0.includes('Setup check'), showEmpty, showRoms, showAll, libraryShow: cfg.library, errors, libHasNes: lib.includes('Nintendo Entertainment System'), nesInstalled: nesRows, cfgTopN: cfg.topN, showGettingStarted: cfg.showGettingStarted, paths: cfg.paths, cache, introAfterReload: introAfter, catalog: await p.evaluate(() => RLC.catalog && RLC.catalog.counts) };
   console.log(JSON.stringify(result, null, 1));
   await b.close(); srv.close();
-  if (showEmpty.join() !== 'n64' || showRoms.includes('n64') || showAll.length !== showRoms.length + 1 || errors.length || introAfter || cfg.showGettingStarted !== false || !nesRows.length) process.exit(1);
+  if (!result.firstRunCheck || showEmpty.join() !== 'n64' || showRoms.includes('n64') || showAll.length !== showRoms.length + 1 || errors.length || introAfter || cfg.showGettingStarted !== false || !nesRows.length) process.exit(1);
 })().catch(e => { console.error(e); srv.close(); process.exit(1); });
