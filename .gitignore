@@ -1,0 +1,15 @@
+# Personal settings and caches written by the page
+rgsx-library-checker.config.json
+rgsx-library-checker-cache/
+*.config.json
+# Local test data
+test/fixtures/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+__pycache__/
+.DS_Store
+Thumbs.db
+test/node_modules/
+test/shots/
+test/package-lock.json

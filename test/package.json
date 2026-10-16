@@ -1,0 +1,8 @@
+{
+  "name": "rgsx-library-checker-tests",
+  "private": true,
+  "scripts": {
+    "test": "python3 make-fixtures.py && node match.test.js && node browser.test.js && node e2e.test.js"
+  },
+  "devDependencies": { "playwright": "^1.48.0" }
+}
