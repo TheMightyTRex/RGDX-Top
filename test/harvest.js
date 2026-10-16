@@ -36,6 +36,7 @@ const srv = http.createServer((q, r) => { const f = path.join(dist, decodeURICom
   await p.evaluate(() => { __html(`<div>${['nes'].map(() => '').join('')}</div>`); RLC.needsReconnect = true; RLC.handles.app = { name: 'X' }; render(); __harvest(); RLC.needsReconnect = false; RLC.handles.app = null; render(); });
   await p.click('#intro [data-act=introPick]');
   await p.waitForFunction(() => RLC.dirs.roms && !RLC.scanning && RLC.catalog, null, { timeout: 20000 });
+  await H(); await p.click('nav [data-tab=library]');
   for (const v of ['empty', 'roms', 'all']) { await p.selectOption('#sysShow', v); await H(); }
   await p.click('[data-sel=nes]'); await H(); await p.click('[data-sel=n64]'); await H();
   await p.click('nav [data-tab=topn]'); await H();
@@ -50,7 +51,7 @@ const srv = http.createServer((q, r) => { const f = path.join(dist, decodeURICom
   await p.evaluate(() => { const d = itchData(); for (const k of Object.keys(d.sys)) { RLC.config.free.system = k; render(); __harvest(); } });
   await p.click('nav [data-tab=help]'); await H();
   await p.click('nav [data-tab=settings]');
-  for (const pg of ['general', 'folders', 'sources', 'keys', 'itch', 'sys:nes', 'sys:amiga500', 'sys:c64', 'sys:atarist', 'sys:zxspectrum', 'sys:msx1', 'sys:snes', 'sys:psx']) { await p.evaluate(pg => { RLC.setPage = pg; render(); }, pg); await H(); }
+  for (const pg of ['general', 'check', 'folders', 'sources', 'keys', 'itch', 'sys:nes', 'sys:amiga500', 'sys:c64', 'sys:atarist', 'sys:zxspectrum', 'sys:msx1', 'sys:snes', 'sys:psx']) { await p.evaluate(pg => { RLC.setPage = pg; render(); }, pg); await H(); }
   await p.evaluate(() => { RLC.showAllSys = true; render(); __harvest(); for (const k of Object.keys(SITE_LISTS)) if (!k.startsWith('*')) { RLC.setPage = 'sys:' + k; render(); __harvest(); } });
   await p.evaluate(() => { RLC.setPage = 'sys:nes'; RLC.webDraft = { sys: 'nes', name: 'x', url: 'https://example.com', items: ['a', 'b'], how: 'pasted text' }; render(); __harvest(); RLC.webDraft.id = 'z'; render(); __harvest(); });
   await p.evaluate(async () => { Vault.cfg().mode = 'passphrase'; RLC.setPage = 'keys'; render(); __harvest(); Vault.cfg().mode = 'device'; });
@@ -61,6 +62,14 @@ const srv = http.createServer((q, r) => { const f = path.join(dist, decodeURICom
   await H(); await p.click('.overlay [data-x]');
   // status chips
   await p.evaluate(() => { RLC.busy = 'x'; RLC.writable = false; renderStatus(); __harvest(document.querySelector('#status')); RLC.busy = ''; RLC.writable = true; const c = RLC.catalog; RLC.catalog = null; renderStatus(); __harvest(document.querySelector('#status')); RLC.catalog = c; renderStatus(); });
+  await p.evaluate(() => { const keep = { ...ENV };
+    for (const v of [{ ok: false, os: 'Windows', name: 'Firefox' }, { ok: false, os: 'macOS', name: 'Safari' }, { ok: false, os: 'Linux', name: 'Firefox' }, { ok: false, os: '', name: '' }, { ok: false, os: 'iOS', mobile: true }, { ok: false, os: 'macOS', brave: true }]) { Object.assign(ENV, { mobile: false, brave: false }, v); __html(browserWarning()); }
+    Object.assign(ENV, keep); });
+  await p.evaluate(() => { const keep = { ...RLC.install }, kc = RLC.catalog, kd = RLC.dirs.rgsx, kw = RLC.writable;
+    for (const t of ['roms', 'batocera', 'unknown', '']) { RLC.install = { type: t, rgsxApp: false }; RLC.writable = false; RLC.samePlace = false; RLC.setPage = 'check'; render(); __harvest(); RLC.setPage = 'folders'; render(); __harvest(); }
+    RLC.catalog = null; render(); __harvest(); RLC.dirs.rgsx = null; RLC.setPage = 'check'; render(); __harvest();
+    RLC.tab = 'library'; render(); __harvest();
+    RLC.install = keep; RLC.catalog = kc; RLC.dirs.rgsx = kd; RLC.writable = kw; RLC.samePlace = true; });
   const strings = await p.evaluate(() => [...__H].sort());
   fs.mkdirSync(path.join(__dirname, 'out'), { recursive: true });
   fs.writeFileSync(path.join(__dirname, 'out', 'strings.json'), JSON.stringify(strings, null, 1));

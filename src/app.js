@@ -37,7 +37,7 @@ const SKIP_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg', 'ic
   'py', 'pyc', 'dll', 'tmp', 'old', 'orig', 'keys', 'p2k', 'cht', 'rtc', 'eep', 'lnk_bak', 'ds_store', 'thumbs']);
 const GAME_DIR = /\.(pc|ps3|daphne|singe|wiiu|psvita|squashfs|xbox|game|exe|cannonball|switch|m3u|steam|epic|gog|ldrd)$/i;
 const SCAN_DEPTH = 3;
-const SCAN_VERSION = 2; // bump when scanning rules change so old scan caches are ignored
+const SCAN_VERSION = 3; // bump when scanning rules change so old scan caches are ignored
 
 /* ------------------------------------------------------------------ state */
 const S = {
@@ -74,7 +74,37 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const fmtDate = s => { try { return new Date(s).toLocaleDateString(LANG === 'en' ? undefined : LANG, { day: 'numeric', month: 'short', year: 'numeric' }); } catch { return s; } };
 const extOf = n => { const i = n.lastIndexOf('.'); return i > 0 ? n.slice(i + 1).toLowerCase() : ''; };
 const stripExt = n => n.replace(/\.(?:p8\.png|[a-z0-9]{1,5})$/i, '');
-const fsSupported = 'showDirectoryPicker' in window;
+/* Browser check. The page needs the File System Access API (folder picker + persistent handles), which only
+   Chromium-based desktop browsers have: Chrome, Edge, Opera, Vivaldi and Chromium on Windows, macOS and Linux.
+   Brave has it switched off by default. Firefox, Safari and every phone or tablet browser can't open folders. */
+const ENV = (() => {
+  const ua = navigator.userAgent || '', touchMac = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
+  const os = /Windows/i.test(ua) ? 'Windows' : /iPhone|iPad|iPod/.test(ua) || touchMac ? 'iOS' : /Android/i.test(ua) ? 'Android'
+    : /Mac OS X|Macintosh/.test(ua) ? 'macOS' : /CrOS/.test(ua) ? 'ChromeOS' : /Linux|X11/i.test(ua) ? 'Linux' : '';
+  const name = navigator.brave ? 'Brave' : /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Vivaldi/.test(ua) ? 'Vivaldi'
+    : /Firefox\/|FxiOS/.test(ua) ? 'Firefox' : /Chrome\/|CriOS/.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : '';
+  const api = 'showDirectoryPicker' in window && typeof FileSystemHandle !== 'undefined' && 'queryPermission' in FileSystemHandle.prototype;
+  const ok = api && 'indexedDB' in window && !!(window.crypto && crypto.subtle);
+  return { os, name, mobile: os === 'iOS' || os === 'Android', brave: !!navigator.brave, ok };
+})();
+const fsSupported = ENV.ok;
+function browserWarning() {
+  if (ENV.ok) return '';
+  const where = [ENV.name, ENV.os].filter(Boolean).join(' · ');
+  let advice;
+  if (ENV.mobile) advice = `<p>Phones and tablets can't give a web page access to folders. Open this page on a Windows, Mac or Linux computer, in Chrome or Edge.</p>`;
+  else if (ENV.brave) advice = `<p>Brave switches folder access off. Open <code>brave://flags/#file-system-access-api</code>, set it to <b>Enabled</b>, restart Brave and reopen this page. Or use Chrome or Edge.</p>`;
+  else {
+    const list = ENV.os === 'Windows' ? '<b>Microsoft Edge</b> (already on your PC) or <b>Google Chrome</b>'
+      : ENV.os === 'macOS' ? '<b>Google Chrome</b> or <b>Microsoft Edge</b> for Mac (Safari can\'t open folders)'
+      : ENV.os === 'Linux' ? '<b>Google Chrome</b>, <b>Chromium</b> or <b>Microsoft Edge</b> for Linux (Firefox can\'t open folders)'
+      : '<b>Google Chrome</b> or <b>Microsoft Edge</b>';
+    advice = `<p>Open this file in ${list}. Opera and Vivaldi work too.</p>
+      <p class="row"><a class="tag" href="https://www.google.com/chrome/" target="_blank" rel="noopener">Get Chrome ↗</a> <a class="tag" href="https://www.microsoft.com/edge/download" target="_blank" rel="noopener">Get Edge ↗</a></p>`;
+  }
+  return `<div class="notice err" role="alert" id="browserWarning"><b>This browser can't run RGSX Library Checker</b>${where ? ` <span translate="no">(${esc(where)})</span>` : ''}
+    <p>The page needs to open your RetroBat or Batocera folder, which only Chrome, Edge and other Chromium-based browsers allow on Windows, macOS and Linux. Help and Free games still work here.</p>${advice}</div>`;
+}
 const D = s => `<span translate="no">${esc(fmtDate(s))}</span>`; // dates in HTML, kept out of text matching
 const FOLDER2SYS = {};
 for (const [k, v] of Object.entries(SYSTEMS)) { FOLDER2SYS[k] = k; (v.aliases || []).forEach(a => FOLDER2SYS[a] = k); }
@@ -155,11 +185,20 @@ async function locate(root) {
     if (await looksLikeRoms(roms)) {
       out.retro = base; out.roms = roms; out.rel = sub;
       out.rgsx = await tryDir(base, 'saves/ports/rgsx') || await tryDir(base, 'saves/ports/RGSX');
+      out.type = await detectInstall(base);
+      out.rgsxApp = !!(await tryDir(roms, 'ports/RGSX'));
       return out;
     }
   }
-  if (await looksLikeRoms(root, 3)) out.roms = root;
+  if (await looksLikeRoms(root, 3)) { out.roms = root; out.type = 'roms'; out.rgsxApp = !!(await tryDir(root, 'ports/RGSX')); }
   return out;
+}
+// RetroBat keeps retrobat.ini / RetroBat.exe in its root; a Batocera share has system/batocera.conf.
+async function detectInstall(base) {
+  if (await tryFile(base, 'retrobat.ini') || await tryFile(base, 'RetroBat.exe')) return 'retrobat';
+  if (await tryFile(await tryDir(base, 'system'), 'batocera.conf')) return 'batocera';
+  if (await tryDir(base, 'emulationstation')) return 'retrobat';
+  return 'unknown';
 }
 async function isRgsxFolder(d) { return !!(await tryFile(d, 'rgsx.sqlite3')); }
 
@@ -167,6 +206,7 @@ function pageLocation() {
   if (location.protocol !== 'file:') return { file: '', folder: '' };
   let p = decodeURIComponent(location.pathname);
   if (/^\/[A-Za-z]:\//.test(p)) p = p.slice(1).replace(/\//g, '\\');
+  else if (location.host) p = '\\\\' + location.host + p.replace(/\//g, '\\');   // network share: \\BATOCERA\share\...
   const sep = p.includes('\\') ? '\\' : '/'; const i = p.lastIndexOf(sep);
   return { file: p.slice(i + 1), folder: p.slice(0, i) };
 }
@@ -246,9 +286,10 @@ async function connect(fresh) {
   let loc = { roms: null, rgsx: null, retro: null };
   if (S.handles.retro && await perm(S.handles.retro, 'read', false)) loc = await locate(S.handles.retro);
   if (!loc.roms) { const l2 = await locate(app); if (l2.roms) { loc = l2; S.handles.retro = null; await idb.set('retro', undefined); } }
-  S.dirs.roms = loc.roms;
+  S.dirs.roms = loc.roms; S.install = { type: loc.type || '', rgsxApp: !!loc.rgsxApp };
   S.dirs.rgsx = (S.handles.rgsx && await perm(S.handles.rgsx, 'read', false)) ? S.handles.rgsx : loc.rgsx;
   if (S.dirs.rgsx && !(await isRgsxFolder(S.dirs.rgsx))) S.dirs.rgsx = null;
+  if (!S.dirs.rgsx) { S.catalog = null; S.catIndex = {}; }   // don't keep a catalogue from a previously chosen folder
   const here = pl.folder || app.name || "this page's folder";
   S.config.paths.retrobatFolder = loc.retro ? (S.handles.retro ? S.handles.retro.name : (loc.rel ? here + '\\' + loc.rel : here)) : '';
   S.config.paths.romsFolder = loc.roms ? (loc.retro ? 'roms' : loc.roms.name) : '';
@@ -259,9 +300,12 @@ async function connect(fresh) {
   S.itch = await cacheRead('itch-free.json');
   const sc = await cacheRead('scan.json'); if (sc && sc.scan && sc.v === SCAN_VERSION) { S.scan = sc.scan; S.index = {}; }
   await listFolders();
+  // First run (no config file yet): open the setup check, which fills in as the scan and catalogue finish.
+  if (!cfg) { S.tab = 'settings'; S.setPage = 'check'; S.firstRunCheck = true; }
   render();
   if (S.dirs.rgsx) loadCatalog(false);
   if (S.dirs.roms && !Object.keys(S.scan).length) scanAll();
+  if (!cfg) saveConfig();   // writes the config, so the check opens by itself only once
 }
 async function listFolders() {
   S.folders = [];
@@ -278,8 +322,14 @@ async function readGamelist(dir) {
   const dec = s => s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;|&#39;/g, "'").trim();
   const re = /<game\b[^>]*>([\s\S]*?)<\/game>/g; let g;
   while ((g = re.exec(txt))) {
-    const p = /<path>([\s\S]*?)<\/path>/.exec(g[1]), n = /<name>([\s\S]*?)<\/name>/.exec(g[1]);
-    if (p && n) map.set(dec(p[1]).replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase(), dec(n[1]));
+    // Scraped metadata used for matching: the game's name, its release year and its RetroAchievements ID.
+    const tag = t => { const m = new RegExp('<' + t + '>([\\s\\S]*?)</' + t + '>').exec(g[1]); return m ? dec(m[1]) : ''; };
+    const path = tag('path'); if (!path) continue;
+    const meta = {}, name = tag('name'), date = tag('releasedate'), ra = tag('cheevosId');
+    if (name) meta.n = name;
+    if (/^(19[5-9]\d|20\d\d)/.test(date)) meta.y = +date.slice(0, 4);
+    if (/^\d+$/.test(ra) && ra !== '0') meta.ra = +ra;
+    if (Object.keys(meta).length) map.set(path.replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase(), meta);
   }
   return map;
 }
@@ -300,9 +350,9 @@ async function scanFolder(folder) {
   const dir = await tryDir(S.dirs.roms, folder); if (!dir) return;
   const roms = []; await walk(dir, '', 0, roms);
   const gl = await readGamelist(dir);
-  if (gl) for (const r of roms) { const n = gl.get(((r.d ? r.d + '/' : '') + r.f).toLowerCase()); if (n) r.n = n; }
+  if (gl) for (const r of roms) { const m = gl.get(((r.d ? r.d + '/' : '') + r.f).toLowerCase()); if (m) Object.assign(r, m); }
   roms.sort((a, b) => (a.n || a.f).localeCompare(b.n || b.f));
-  S.scan[folder] = { at: new Date().toISOString(), roms };
+  S.scan[folder] = { at: new Date().toISOString(), roms, gl: !!gl };
   delete S.index[folder];
 }
 async function scanAll() {
@@ -322,12 +372,13 @@ async function scanAll() {
 
 /* ------------------------------------------------------------------ matching */
 function buildIndex(entries) {
-  const byKey = new Map(), byMain = new Map();
+  const byKey = new Map(), byMain = new Map(), byRa = new Map();
   const add = (m, k, e) => { if (!k) return; let a = m.get(k); if (!a) m.set(k, a = []); a.push(e); };
   for (const e of entries) {
     for (const name of [e.n, cleanName(e.f)]) { if (!name) continue; add(byKey, norm(name), e); add(byMain, mainTitle(name), e); }
+    if (e.ra) add(byRa, e.ra, e);
   }
-  return { byKey, byMain };
+  return { byKey, byMain, byRa };
 }
 function localIndex(folder) {
   if (!S.index[folder]) S.index[folder] = buildIndex((S.scan[folder] || { roms: [] }).roms);
@@ -342,16 +393,29 @@ function candidates(e) {
   const out = [];
   for (const t of [e.t, ...(e.a || [])]) {
     out.push(t);
-    const parts = t.split(/\s+(?:and|&)\s+|\s*\/\s*/); if (parts.length > 1 && parts[0].length > 3) out.push(parts[0]);
+    // Paired releases ("Pokémon Red and Blue", "Gold / Silver"): also try the first one. Only when the second part is a
+    // single word, so "Battletoads & Double Dragon" doesn't match plain "Battletoads".
+    const parts = t.split(/\s+(?:and|&)\s+|\s*\/\s*/);
+    if (parts.length === 2 && parts[0].length > 3 && /^\S+$/.test(parts[1])) out.push(parts[0]);
   }
   return out;
 }
-function findIn(idx, e) {
+// claimed: normalised titles of every game in the list being compared. A loose match (subtitle added or dropped) may
+// not take a ROM that is exactly another game in that list: "Speedy Gonzales" stays with Speedy Gonzales, not with
+// "Speedy Gonzales: Aztec Adventure".
+function findIn(idx, e, claimed) {
   if (!idx) return null;
+  // A RetroAchievements game ID from gamelist.xml (cheevosId) is an exact match for RetroAchievements lists.
+  if (e.ra && idx.byRa) { const r = idx.byRa.get(e.ra); if (r) return r; }
+  // With a scraped release year, a ROM can't be a game first released later (allowing a year for regional dates):
+  // this stops "Street Fighter" (1987) counting as "Street Fighter: The Movie" (1995).
+  const ok = r => { if (!r) return null; const f = e.y ? r.filter(x => !x.y || x.y >= e.y - 1) : r; return f.length ? f : null; };
   const c = candidates(e);
-  for (const t of c) { const r = idx.byKey.get(norm(t)); if (r) return r; }
-  for (const t of c) { const r = idx.byMain.get(norm(t)); if (r) return r; }
-  for (const t of c) { const m = mainTitle(t); if (m && m.split(' ').length > 1) { const r = idx.byKey.get(m); if (r) return r; } }
+  for (const t of c) { const r = ok(idx.byKey.get(norm(t))); if (r) return r; }
+  const own = new Set(c.map(norm));
+  const loose = r => { r = ok(r); if (!r || !claimed) return r; const f = r.filter(x => ![x.n, cleanName(x.f)].some(n => n && claimed.has(norm(n)) && !own.has(norm(n)))); return f.length ? f : null; };
+  for (const t of c) { const r = loose(idx.byMain.get(norm(t))); if (r) return r; }
+  for (const t of c) { const m = mainTitle(t); if (m && m.split(' ').length > 1) { const r = loose(idx.byKey.get(m)); if (r) return r; } }
   return null;
 }
 function foldersFor(sysKey) { return S.folders.filter(f => FOLDER2SYS[f] === sysKey || f === sysKey); }
@@ -538,11 +602,11 @@ const ApiSources = {
     const list = [...pick.entries()].slice(0, 400), out = [];
     for (let i = 0; i < list.length; i++) {
       const [gid, title] = list[i];
-      try { const g = await this.raGet('API_GetGameExtended.php', { i: gid }, key); out.push({ t: g.Title || title, p: +(g.NumDistinctPlayers ?? g.numDistinctPlayers ?? ((g.NumDistinctPlayersCasual || 0) + (g.NumDistinctPlayersHardcore || 0))) || 0 }); }
+      try { const g = await this.raGet('API_GetGameExtended.php', { i: gid }, key); out.push({ id: gid, t: g.Title || title, p: +(g.NumDistinctPlayers ?? g.numDistinctPlayers ?? ((g.NumDistinctPlayersCasual || 0) + (g.NumDistinctPlayersHardcore || 0))) || 0 }); }
       catch (e) { if (/rejected|rate limit/.test(e.message)) throw e; }
       progress && progress(i + 1, list.length); await sleep(350);
     }
-    return out.filter(g => g.p > 0).sort((a, b) => b.p - a.p).map(g => ({ t: g.t.replace(/\s*\|.*$/, ''), n: g.p.toLocaleString() + ' players' }));
+    return out.filter(g => g.p > 0).sort((a, b) => b.p - a.p).map(g => ({ t: g.t.replace(/\s*\|.*$/, ''), ra: g.id, n: g.p.toLocaleString() + ' players' }));
   },
   rawgPlatforms: null,
   async rawgPlatform(sysKey, key) {
@@ -659,9 +723,11 @@ async function refreshLists(sysKeys, sources) {
 function compareSystem(sysKey, source, size) {
   const l = getList(source, sysKey); if (!l) return null;
   const folders = foldersFor(sysKey);
+  // Every game known on this platform (this list plus the Wikidata list): used to keep loose matches honest.
+  const claimed = new Set([...l.items, ...((rawList('wikidata', sysKey) || {}).items || [])].map(x => norm(x.t)));
   const items = l.items.slice(0, size).map((e, i) => {
-    let have = null; for (const f of folders) { have = findIn(localIndex(f), e); if (have) break; }
-    let cat = null; if (!have && S.catalog) for (const f of new Set([...folders, sysKey, ...(SYSTEMS[sysKey].aliases || [])])) { cat = findIn(catalogIndex(f), e); if (cat) break; }
+    let have = null; for (const f of folders) { have = findIn(localIndex(f), e, claimed); if (have) break; }
+    let cat = null; if (!have && S.catalog) for (const f of new Set([...folders, sysKey, ...(SYSTEMS[sysKey].aliases || [])])) { cat = findIn(catalogIndex(f), e, claimed); if (cat) break; }
     return { rank: i + 1, e, have, cat };
   });
   return { list: l, items, have: items.filter(x => x.have).length, folders };
@@ -680,11 +746,12 @@ function render() {
   const notices = S.errors.filter(e => Date.now() - e.at < 20000).map(e => `<div class="notice ${e.kind === 'err' ? 'err' : e.kind === 'warn' ? '' : 'info'}">${e.html || esc(e.msg)}</div>`).join('');
   let body = '';
   if (S.tab === 'help') body = viewHelp();
-  else if (!fsSupported) body = `<div class="panel"><h2>This browser can't open folders</h2><p>RGSX Library Checker needs the File System Access API to read your ROM folders and write its config file. Open this page in <b>Google Chrome</b> or <b>Microsoft Edge</b> on Windows, macOS or Linux.</p></div>`;
+  else if (!fsSupported && S.tab === 'free') body = viewFree();
+  else if (!fsSupported) body = '';
   else if (!S.handles.app) body = connectPanel();
   else if (S.needsReconnect) body = `<div class="panel"><h2>Allow access again</h2><p>Your browser needs you to confirm folder access each time this page is opened. Last folder: <b>${esc(S.handles.app.name)}</b>.</p><div class="row"><button class="primary" data-act="reconnect">${T('Allow access to {folder}', { folder: S.handles.app.name })}</button><button data-act="pickApp">Choose a different folder</button></div></div>`;
   else body = ({ library: viewLibrary, topn: viewTopN, free: viewFree, settings: viewSettings, help: viewHelp })[S.tab]();
-  m.innerHTML = notices + body;
+  m.innerHTML = browserWarning() + notices + body;
   translateDom(m); translateDom(document.querySelector('header'));
   if (S.config.showGettingStarted && !ls.get('rlc.hideIntro') && !S.introDismissed && $('#intro').classList.contains('hidden')) showIntro();
 }
@@ -708,7 +775,9 @@ function connectPanel() {
 }
 
 function viewLibrary() {
-  if (!S.dirs.roms) return `<div class="panel"><h2>ROMs folder not found</h2><p>No <code>roms</code> folder was found in <b>${esc(S.handles.app.name)}</b>. Choose your RetroBat or Batocera folder (or the roms folder itself).</p><div class="row"><button class="primary" data-act="pickRetro">Choose RetroBat folder…</button></div></div>`;
+  const problems = setupChecks().filter(x => x.status === 'err' || (x.status === 'warn' && ['Installation', 'RGSX database', 'Page folder'].includes(x.title)));
+  const checkNote = problems.length ? `<div class="notice">${problems.map(x => `<b>${esc(x.title)}</b>: <span>${esc(x.detail)}</span>`).join(' · ')} <button class="small" data-setpage="check">Open setup check</button></div>` : '';
+  if (!S.dirs.roms) return checkNote + `<div class="panel"><h2>ROMs folder not found</h2><p>No <code>roms</code> folder was found in <b>${esc(S.handles.app.name)}</b>. Choose your RetroBat or Batocera folder (or the roms folder itself).</p><div class="row"><button class="primary" data-act="pickRetro">Choose RetroBat folder…</button></div></div>`;
   const f = S.sysFilter.toLowerCase(), show = S.config.library.show;
   const count = x => S.scan[x] ? S.scan[x].roms.length : null;
   const rows = S.folders.filter(x => !f || x.includes(f) || sysLabel(x).toLowerCase().includes(f))
@@ -730,13 +799,13 @@ function viewLibrary() {
       <input type="search" id="libFilter" placeholder="Filter…" value="${esc(S.libFilter)}">
       <button class="small" data-act="scanOne">Rescan</button>${sysKey ? `<button class="small" data-act="toTop">Compare with top lists</button>` : ''}</div>
       ${S.catalog && S.catalog.sources[S.sel] ? `<p class="muted">${T('RGSX catalogue for {folder}: {n} games from {sources}.', { folder: S.sel, n: (S.catalog.counts[S.sel] || 0).toLocaleString(), sources: S.catalog.sources[S.sel].join(', ') })}</p>` : ''}
-      <table><thead><tr><th>Game</th><th>File</th><th>Folder</th></tr></thead><tbody translate="no">
-      ${shown.map(r => `<tr><td>${esc(r.n || cleanName(r.f))}</td><td class="muted">${esc(r.f)}</td><td class="muted">${esc(r.d)}</td></tr>`).join('')}
+      <table><thead><tr><th>Game</th><th>Year</th><th>File</th><th>Folder</th></tr></thead><tbody translate="no">
+      ${shown.map(r => `<tr><td>${esc(r.n || cleanName(r.f))}${r.ra ? ' <span class="tag" title="RetroAchievements">RA</span>' : ''}</td><td class="muted">${r.y || ''}</td><td class="muted">${esc(r.f)}</td><td class="muted">${esc(r.d)}</td></tr>`).join('')}
       </tbody></table>
       ${list.length > shown.length ? `<p class="row"><span class="muted">Showing ${shown.length.toLocaleString()} of ${list.length.toLocaleString()}.</span><button class="small" data-act="more">Show 1,000 more</button></p>` : ''}
       ${!list.length ? '<div class="empty">No ROMs here.</div>' : ''}`;
   }
-  return `<div class="split"><div class="panel"><div class="row"><b>Systems</b><span class="muted">${withRoms} with games · ${total.toLocaleString()} files</span></div>
+  return checkNote + `<div class="split"><div class="panel"><div class="row"><b>Systems</b><span class="muted">${withRoms} with games · ${total.toLocaleString()} files</span></div>
     <div class="row" style="margin-top:8px"><input type="search" id="sysFilter" placeholder="Find a system…" value="${esc(S.sysFilter)}" style="flex:1"><button class="small" data-act="scanAll" ${S.scanning ? 'disabled' : ''}>Rescan all</button></div>
     <div class="row" style="margin-top:8px"><select id="sysShow" style="flex:1" aria-label="Which systems to list">
       <option value="all" ${show === 'all' ? 'selected' : ''}>Show all</option>
@@ -794,7 +863,7 @@ function viewTopN() {
   const rows = items.map(x => {
     const k = norm(x.e.t), star = wl.includes(k);
     return `<tr class="${x.have ? 'have' : 'miss'}"><td class="num">${x.rank}</td><td><b translate="no">${esc(x.e.t)}</b>${x.e.y ? ` <span class="muted">(${x.e.y})</span>` : ''}${x.e.n ? `<br><small class="muted">${esc(x.e.n)}</small>` : ''}</td>
-      <td>${x.have ? `<span class="tag ok">Installed</span> <small class="muted" translate="no">${esc(x.have[0].f)}${x.have.length > 1 ? ` +${x.have.length - 1}` : ''}</small>` : `<span class="tag no">Missing</span>${x.cat ? ` <span class="tag warn" title="${esc(x.cat[0].f)}">In RGSX catalogue</span>` : ''}`}</td>
+      <td>${x.have ? `<span class="tag ok">Installed</span> <small class="muted" translate="no">${esc(x.have[0].f)}${x.have.length > 1 ? ` +${x.have.length - 1}` : ''}</small>` : `<span class="tag no">Missing</span>${x.cat ? ` <span class="tag warn" title="${esc(x.cat[0].f)}" translate="no">${tr('In RGSX catalogue')}</span>` : ''}`}</td>
       <td class="right"><button class="small" data-star="${esc(k)}" title="Wishlist">${star ? '★' : '☆'}</button></td></tr>`;
   }).join('');
   return controls + scanNote + `<div class="panel"><div class="row"><h2 style="margin:0"><span translate="no">${esc(SYSTEMS[c.system].label)}</span> · Top ${c.size}</h2>
@@ -879,7 +948,7 @@ function viewSettings() {
     return (!f || SYSTEMS[k].label.toLowerCase().includes(f) || k.includes(f)) ? item('sys:' + k, SYSTEMS[k].label, foldersFor(k).join(', ') + (n ? ` · ${n} list${n > 1 ? 's' : ''}` : ''), true) : '';
   };
   const menu = `<div class="panel"><b>Settings</b><div class="syslist" style="max-height:none">
-    ${item('general', 'General')}${item('folders', 'Folders')}${item('sources', 'Top list sources')}${item('keys', 'API keys')}${item('itch', 'itch.io data')}</div>
+    ${item('general', 'General')}${item('check', 'Setup check')}${item('folders', 'Folders')}${item('sources', 'Top list sources')}${item('keys', 'API keys')}${item('itch', 'itch.io data')}</div>
     <div class="row" style="margin-top:14px"><b>Systems</b><span class="muted">lists per system</span></div>
     <div class="row" style="margin-top:8px"><input type="search" id="setSysFilter" placeholder="Find a system…" value="${esc(S.setSysFilter || '')}" style="flex:1"></div>
     <div class="syslist">${mine.map(sysItem).join('')}
@@ -887,8 +956,46 @@ function viewSettings() {
     <div class="sysitem" data-act="toggleAllSys"><small>${S.showAllSys ? 'Hide systems without a ROM folder' : `Show ${rest.length} more systems without a ROM folder`}</small></div></div></div>`;
   let body;
   if (page.startsWith('sys:')) body = settingsSystem(page.slice(4));
-  else body = ({ general: settingsGeneral, folders: settingsFolders, sources: settingsSources, keys: settingsKeys, itch: settingsItch })[page]();
+  else body = ({ general: settingsGeneral, check: settingsCheck, folders: settingsFolders, sources: settingsSources, keys: settingsKeys, itch: settingsItch })[page]();
   return `<div class="split"><div>${menu}</div><div>${body}</div></div>`;
+}
+const INSTALL_NAME = { retrobat: 'RetroBat', batocera: 'Batocera share', roms: 'A roms folder on its own', unknown: 'A folder with a roms folder' };
+function setupChecks() {
+  const c = [], add = (status, title, detail = '', fix = '') => c.push({ status, title, detail, fix });
+  const scanned = Object.values(S.scan), withRoms = Object.entries(S.scan).filter(([, v]) => v.roms.length);
+  add(ENV.ok ? 'ok' : 'err', 'Browser', ENV.ok ? [ENV.name, ENV.os].filter(Boolean).join(' on ') || 'Supported' : 'This browser can\'t open folders.', ENV.ok ? '' : 'Use Chrome or Edge on Windows, macOS or Linux.');
+  if (!S.handles.app) { add('err', 'Page folder', 'Not chosen yet.', 'Choose the folder this page is in.'); return c; }
+  add(S.writable ? 'ok' : 'warn', 'Page folder', (S.config.paths.appFolder || S.handles.app.name) + (S.writable ? '' : ' ' + tr('(read-only)')), S.writable ? '' : 'Settings can\'t be saved. Choose the folder again and allow "Edit files", or check the share isn\'t read-only.');
+  if (S.samePlace === false) add('warn', 'Page location', 'This page isn\'t in the chosen folder, so its config is saved somewhere else.', 'Copy the page into the RetroBat folder or Batocera share, or choose the folder it is in.');
+  const t = (S.install || {}).type;
+  add(t === 'retrobat' || t === 'batocera' ? 'ok' : t ? 'warn' : 'err', 'Installation', t ? INSTALL_NAME[t] : 'No roms folder found.',
+    t === 'roms' ? 'You chose the roms folder itself, so the RGSX database can\'t be found automatically. Choose the RetroBat folder or the Batocera share instead, or pick the RGSX folder in Settings › Folders.'
+    : t ? '' : 'Choose your RetroBat folder or Batocera share in Settings › Folders.');
+  if (S.scanning) add('info', 'ROM folders', 'Scanning your library…', 'The results below update when the scan finishes.');
+  else if (S.dirs.roms) add(withRoms.length ? 'ok' : 'warn', 'ROM folders', `${S.folders.length} system folders, ${withRoms.length} with games.`, withRoms.length ? '' : 'No games found yet. Press Rescan all in the Library.');
+  if (withRoms.length && !S.scanning) {
+    const gl = withRoms.filter(([, v]) => v.gl).length;
+    add(gl === withRoms.length ? 'ok' : gl ? 'warn' : 'warn', 'Game lists (gamelist.xml)', `${gl} of ${withRoms.length} systems with games have one.`,
+      gl === withRoms.length ? '' : 'Scrape your games in RetroBat / Batocera (Main menu › Scraper). Names, release years and RetroAchievements IDs make matching much more accurate.');
+  }
+  if (S.install) add(S.install.rgsxApp ? 'ok' : 'warn', 'RGSX app', S.install.rgsxApp ? 'Installed (roms/ports/RGSX).' : 'Not found in roms/ports/RGSX.', S.install.rgsxApp ? '' : 'Install RGSX from github.com/RetroGameSets/RGSX to see which missing games it can download.');
+  if (!S.dirs.rgsx) add('warn', 'RGSX database', 'Not found (saves/ports/rgsx/rgsx.sqlite3).', 'Start RGSX once so it creates its database, or choose its folder in Settings › Folders.');
+  else if (!S.catalog && /RGSX/.test(S.busy)) add('info', 'RGSX database', 'Reading the RGSX database…');
+  else if (!S.catalog) add('warn', 'RGSX database', 'Found, not read yet.', 'Press Reload catalogue in Settings › Folders. Close RGSX first if it is running.');
+  else {
+    const age = S.catalog.dbModified ? Math.floor((Date.now() - S.catalog.dbModified) / 864e5) : null;
+    add(age != null && age > 14 ? 'warn' : 'ok', 'RGSX database', `${Object.values(S.catalog.counts).reduce((a, b) => a + b, 0).toLocaleString()} games` + (age != null ? `, updated ${age} days ago` : ''), age != null && age > 14 ? 'Start RGSX to update its catalogue, then press Reload catalogue.' : '');
+  }
+  if (t === 'batocera' || /^\\\\/.test(S.config.paths.appFolder || '')) add('info', 'Network share', 'The library is read over the network, so scans are slower than on a local disk.', 'The first scan can take a few minutes on Wi-Fi; after that the page uses its cache. Use Rescan when you add games.');
+  return c;
+}
+function settingsCheck() {
+  const icon = { ok: '✓', warn: '!', err: '✕', info: 'i' }, cls = { ok: 'ok', warn: 'warn', err: 'no', info: '' };
+  const rows = setupChecks().map(x => `<tr><td><span class="tag ${cls[x.status]}" translate="no">${icon[x.status]}</span></td><td><b>${esc(x.title)}</b></td><td${x.title === 'Browser' && ENV.ok ? ' translate="no"' : ''}>${esc(x.detail)}${x.fix ? `<br><small class="muted">${esc(x.fix)}</small>` : ''}</td></tr>`).join('');
+  return `<div class="panel"><div class="row"><h2 style="margin:0">Setup check</h2><div class="grow"></div><button class="small" data-act="recheck">Check again</button></div>
+    <p class="muted">Works for RetroBat on Windows and for a Batocera share opened from Windows, macOS or Linux.</p>
+    ${!S.firstRunCheck ? '' : '<div class="notice info">This check runs when you first connect a folder. You can come back to it any time from Settings › Setup check.</div>'}
+    <table><tbody>${rows}</tbody></table></div>`;
 }
 function settingsGeneral() {
   const cfg = JSON.stringify({ ...S.config, wishlist: `${Object.values(S.config.wishlist).flat().length} games`, customLists: `${S.config.customLists.length} lists`, vault: S.config.vault ? { mode: S.config.vault.mode, items: Object.keys(S.config.vault.items || {}).map(k => k + ' (encrypted)') } : undefined }, null, 2);
@@ -901,7 +1008,7 @@ function settingsFolders() {
   const p = S.config.paths;
   return `<div class="panel"><h2>Folders</h2><div class="kv">
     <div>This page's folder</div><div>${esc(p.appFolder || S.handles.app.name)} ${S.samePlace === false ? '<span class="tag warn">this page is not in that folder</span>' : S.samePlace ? '<span class="tag ok">config saved here</span>' : ''} ${S.writable ? '' : '<span class="tag no">read-only</span>'}</div><div><button class="small" data-act="pickApp">Change…</button></div>
-    <div>RetroBat / Batocera folder</div><div>${p.retrobatFolder ? esc(p.retrobatFolder) : '<span class="tag no">not found</span>'}</div><div><button class="small" data-act="pickRetro">Choose…</button></div>
+    <div>RetroBat / Batocera folder</div><div>${p.retrobatFolder ? esc(p.retrobatFolder) : '<span class="tag no">not found</span>'} ${S.install && S.install.type ? `<span class="tag ok">${esc(tr(INSTALL_NAME[S.install.type]))}</span>` : ''}</div><div><button class="small" data-act="pickRetro">Choose…</button></div>
     <div>ROMs folder</div><div>${p.romsFolder ? esc(p.romsFolder) + ` <span class="muted">(${S.folders.length} system folders)</span>` : '<span class="tag no">not found</span>'}</div><div></div>
     <div>RGSX database folder</div><div>${p.rgsxFolder ? esc(p.rgsxFolder) : '<span class="tag no">not found</span>'} ${S.catalog ? `<span class="muted">read ${D(S.catalog.at)}</span>` : ''}</div><div><button class="small" data-act="pickRgsx">Choose…</button> ${S.dirs.rgsx ? '<button class="small" data-act="reloadCat">Reload catalogue</button>' : ''}</div>
   </div></div>
@@ -986,7 +1093,7 @@ function settingsSystem(k) {
 /* ------------------------------------------------------------------ help */
 function viewHelp() {
   const sec = (id, title, html) => `<div class="panel" id="help-${id}"><h2>${title}</h2>${html}</div>`;
-  const toc = [['start', 'Getting started'], ['library', 'Library'], ['topn', 'Top lists'], ['rgsx', 'The RGSX catalogue'], ['sources', 'Top list sources'], ['web', 'Lists from websites'], ['keys', 'API keys and encryption'], ['free', 'Free games'], ['files', 'Files and privacy'], ['trouble', 'Troubleshooting']];
+  const toc = [['start', 'Getting started'], ['browsers', 'Browsers and computers'], ['batocera', 'Using it with Batocera'], ['library', 'Library'], ['topn', 'Top lists'], ['rgsx', 'The RGSX catalogue'], ['sources', 'Top list sources'], ['web', 'Lists from websites'], ['keys', 'API keys and encryption'], ['free', 'Free games'], ['files', 'Files and privacy'], ['trouble', 'Troubleshooting']];
   return `<div class="split"><div class="panel"><b>Help</b><div class="syslist" style="max-height:none">${toc.map(([id, t]) => `<div class="sysitem" data-helpgo="${id}"><span>${t}</span></div>`).join('')}</div></div><div>
   ${sec('start', 'Getting started', `<ol>
     <li>Put <code>rgsx-library-checker.html</code> in your RetroBat folder (for example <code>C:\\RetroBat</code>) or the Batocera <code>share</code> folder.</li>
@@ -994,6 +1101,21 @@ function viewHelp() {
     <li>Click <b>Choose this page's folder…</b> and pick the folder the page is in. Allow <i>view and edit</i>.</li>
     <li>The page finds <code>roms</code> and the RGSX database (<code>saves\\ports\\rgsx\\rgsx.sqlite3</code>) itself and scans your library. If it can't find them, choose them in <b>Settings › Folders</b>.</li></ol>
     <p class="muted">Each time you open the page the browser may ask you to allow access again; click the button it shows. That's a browser safety rule.</p>`)}
+  ${sec('browsers', 'Browsers and computers', `<p>The page works in <b>Google Chrome</b>, <b>Microsoft Edge</b>, <b>Chromium</b>, <b>Opera</b> and <b>Vivaldi</b> on <b>Windows</b>, <b>macOS</b> and <b>Linux</b>. These are the browsers that let a page open a folder you choose.</p>
+    <ul><li><b>Firefox</b> and <b>Safari</b> can't open folders, so the page shows a warning. Help and Free games still work.</li>
+    <li><b>Brave</b>: turn on <code>brave://flags/#file-system-access-api</code> and restart.</li>
+    <li>Phones and tablets can't open folders from a web page.</li></ul>
+    <p><b>RetroBat</b> runs on Windows: put the page in the RetroBat folder. For <b>Batocera</b>, open its <code>share</code> folder over the network (Windows: <code>\\\\BATOCERA\\share</code>; macOS: Finder › Go › Connect to Server › <code>smb://batocera/share</code>; Linux: your file manager's network location, or mount it) and put the page there, or choose that folder from anywhere.</p>`)}
+  ${sec('batocera', 'Using it with Batocera', `<p>Batocera runs on its own machine, so you open its <code>share</code> folder from your computer over the network. The Batocera machine must be on and connected to the same network.</p>
+    <ol><li>On Batocera, check the network is connected: Main menu › <b>Network settings</b> shows its IP address. The machine is called <code>BATOCERA</code> unless you renamed it.</li>
+    <li>Open the share from your computer:<ul>
+      <li><b>Windows</b>: in File Explorer's address bar type <code>\\\\BATOCERA\\share</code> (or <code>\\\\192.168.x.x\\share</code>).</li>
+      <li><b>macOS</b>: Finder › Go › <b>Connect to Server</b>, enter <code>smb://batocera.local/share</code> (or the IP address) and connect as <b>Guest</b>.</li>
+      <li><b>Linux</b>: in your file manager open <b>Other Locations</b> and enter <code>smb://batocera.local/share</code>, or mount it with <code>mount -t cifs //batocera.local/share /mnt/batocera -o guest</code>.</li></ul></li>
+    <li>Copy <code>rgsx-library-checker.html</code> into the share, then open it in Chrome or Edge. (Or keep the page on your computer and choose the share folder when asked.)</li>
+    <li>When asked, choose the <code>share</code> folder itself (it holds <code>roms</code>, <code>saves</code>, <code>bios</code> and <code>system</code>). The page recognises it as a Batocera share.</li>
+    <li>RGSX on Batocera is under <b>Ports</b>. Start it there to update its catalogue, then press <b>Reload catalogue</b> here.</li></ol>
+    <p class="muted">Reading over the network is slower, especially on Wi-Fi: the first scan can take a few minutes, then results are cached. <b>Settings › Setup check</b> shows whether everything was found.</p>`)}
   ${sec('library', 'Library', `<p>Lists every ROM folder with the number of game files, and the RGSX catalogue size. Choose a system to see its games, using the names from <code>gamelist.xml</code> when you've scraped. The dropdown shows all systems, only empty ones, or only those with ROMs. <b>Rescan all</b> picks up new games.</p>`)}
   ${sec('topn', 'Top lists', `<p>Pick a system, a source and a size (10 to 500). Each game shows <span class="tag ok">Installed</span> or <span class="tag no">Missing</span>; missing games that the RGSX catalogue has are marked <span class="tag warn">In RGSX catalogue</span>, so you can fetch them with RGSX. Choose <b>All systems</b> for a coverage table. Use ☆ for a wishlist, and <b>Export missing</b> for a CSV.</p>
     <p>A game can be marked missing when its file is named very differently from the list title (for example US and Japanese names). Scraping your library with names in <code>gamelist.xml</code> improves matching a lot.</p>`)}
@@ -1033,10 +1155,10 @@ function viewHelp() {
 function showIntro() {
   const pl = pageLocation(); const o = $('#intro');
   o.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="introTitle">
-    <h2 id="introTitle">Getting started</h2>
+    <h2 id="introTitle">Getting started</h2>${browserWarning()}
     <p class="muted">RGSX Library Checker lists the ROMs you have installed, checks each system against Top 10–500 lists, and suggests top free games from itch.io. It reads the game catalogue that <a href="https://github.com/RetroGameSets/RGSX" target="_blank" rel="noopener">RGSX</a> keeps, so you can see which missing games RGSX can fetch for you.</p>
     <ol>
-      <li><b>Put this file in your RetroBat folder</b> (for example <code>C:\\RetroBat</code>), or in the Batocera <code>share</code> folder. ${pl.folder ? `It's currently in <code>${esc(pl.folder)}</code>.` : ''}</li>
+      <li><b>Put this file in your RetroBat folder</b> (for example <code>${ENV.os === 'Windows' || !ENV.os ? 'C:\\RetroBat' : ENV.os === 'macOS' ? 'smb://batocera/share' : '/mnt/batocera/share'}</code>), or in the Batocera <code>share</code> folder (on Windows: <code>\\\\BATOCERA\\share</code>; see Help › Using it with Batocera). ${pl.folder ? `It's currently in <code>${esc(pl.folder)}</code>.` : ''}</li>
       <li><b>Open it in Chrome or Edge</b> and choose <b>${pl.folder ? 'this page\'s folder' : 'the folder that holds this page'}</b>. Allow the browser to <i>view and edit</i> files: the page only writes its own <code>${CONFIG_NAME}</code> and a <code>${CACHE_DIR}</code> folder.</li>
       <li>The <code>roms</code> folder and the RGSX database (<code>saves\\ports\\rgsx\\rgsx.sqlite3</code>) are found automatically. If they're somewhere else, the page asks you to choose them, or use <b>Settings</b>.</li>
       <li>Use <b>Library</b> to browse installed games, <b>Top lists</b> to compare a system with a top list from your chosen source, and <b>Free games</b> for top free homebrew and PC games by genre.</li>
@@ -1120,6 +1242,7 @@ const actions = {
   dropItch: async () => { S.itch = null; await cacheWrite('itch-free.json', null); render(); },
   forget: async () => { for (const k of ['app', 'retro', 'rgsx']) await idb.set(k, undefined); S.handles = { app: null, retro: null, rgsx: null }; S.dirs = { roms: null, rgsx: null }; S.scan = {}; S.catalog = null; S.folders = []; render(); },
   toggleAllSys: () => { S.showAllSys = !S.showAllSys; render(); },
+  recheck: async () => { await connect(false); S.tab = 'settings'; S.setPage = 'check'; render(); },
   unlock: async () => { await Vault.unlock(true); render(); },
   webFetch: async () => {
     const url = $('#webUrl').value.trim(); if (!/^https?:\/\//i.test(url)) return toast('Enter the page address, starting with https://', 'warn');

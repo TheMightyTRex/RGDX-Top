@@ -17,7 +17,20 @@ HOW TO USE
    into. Click "View files", then "Save changes" / "Allow".
 
 That's it. The page finds your roms folder and the RGSX database by itself.
-Click Help in the page for everything else.
+Settings > Setup check shows what it found. Click Help for everything else.
+
+BATOCERA
+
+Batocera runs on its own machine. From your computer open its share folder
+over the network, copy the page into it, and choose the share folder:
+- Windows: in File Explorer type \\BATOCERA\share
+- macOS:   Finder > Go > Connect to Server > smb://batocera.local/share
+- Linux:   file manager > Other Locations > smb://batocera.local/share
+
+BROWSERS
+
+Works in Chrome, Edge, Chromium, Opera and Vivaldi on Windows, macOS and Linux.
+Firefox, Safari, phones and tablets can't open folders: the page warns you.
 
 WHAT'S IN THE "extras" FOLDER
 

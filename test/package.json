@@ -2,7 +2,9 @@
   "name": "rgsx-library-checker-tests",
   "private": true,
   "scripts": {
-    "test": "python3 make-fixtures.py && node match.test.js && node browser.test.js && node e2e.test.js && node features.test.js"
+    "test": "python3 make-fixtures.py && python3 make-test-library.py && python3 make-test-library.py fixtures/random-batocera --layout batocera --seed 7 && node match.test.js && node browser.test.js && node e2e.test.js && node features.test.js && node browsers.test.js && node library.test.js fixtures/random-retrobat && node library.test.js fixtures/random-batocera"
   },
-  "devDependencies": { "playwright": "^1.48.0" }
+  "devDependencies": {
+    "playwright": "^1.48.0"
+  }
 }

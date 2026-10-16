@@ -9,7 +9,15 @@ A single HTML page for [RetroBat](https://www.retrobat.org/) and [Batocera](http
 - **Lists top-rated free games from itch.io by genre**: retro homebrew for your systems, plus PC and browser games.
 - **Saves its settings** to `rgsx-library-checker.config.json` in the same folder as the page.
 
-It runs locally in Chrome or Edge. Nothing is installed and nothing is uploaded.
+It runs locally in Chrome or Edge on Windows, macOS and Linux. Nothing is installed and nothing is uploaded.
+
+## Browsers and computers
+
+| Works | Doesn't work |
+| --- | --- |
+| Google Chrome, Microsoft Edge, Chromium, Opera, Vivaldi on **Windows, macOS and Linux** | Firefox, Safari, any phone or tablet browser |
+
+The page needs the File System Access API to open your RetroBat or Batocera folder; only Chromium-based desktop browsers have it. In other browsers the page shows a warning that names your browser and system and says what to use instead. Help and Free games still work there. **Brave** has the feature switched off: enable `brave://flags/#file-system-access-api` and restart.
 
 ## Download
 
@@ -31,6 +39,18 @@ RGSX Library Checker/
 2. Open it in **Chrome** or **Edge** (Firefox and Safari don't support the folder access the page needs).
 3. A getting started page appears the first time. Click **Choose this page's folder…** and pick the folder the page is in. Allow the browser to *view and edit* files.
 4. The page finds `roms` and the RGSX database (`saves\ports\rgsx\rgsx.sqlite3`) automatically. If it can't, it asks you to choose them; you can also change them in **Settings › Folders**.
+
+**Settings › Setup check** shows what the page found: browser, folder access, RetroBat or Batocera, ROM folders, `gamelist.xml` files, the RGSX app and the age of its database, with what to do about anything missing.
+
+### Batocera
+
+Batocera runs on its own machine, so open its `share` folder from your computer over the network (the Batocera machine must be on and on the same network):
+
+- **Windows**: File Explorer › address bar › `\\BATOCERA\share` (or `\\<IP address>\share`).
+- **macOS**: Finder › Go › Connect to Server › `smb://batocera.local/share`, connect as Guest.
+- **Linux**: file manager › Other Locations › `smb://batocera.local/share`, or `mount -t cifs //batocera.local/share /mnt/batocera -o guest`.
+
+Copy the page into the share, open it in Chrome or Edge, and choose the `share` folder (it holds `roms`, `saves`, `bios` and `system`). The page recognises a Batocera share by `system/batocera.conf`. Scanning over Wi-Fi is slower; results are cached after the first scan. RGSX on Batocera is under **Ports**: start it there to update its catalogue.
 
 Tick **Don't show this again** to skip the getting started page next time. The **Help** tab in the page explains everything else.
 
@@ -102,6 +122,14 @@ itch.io doesn't allow other pages to read those feeds, so the data is bundled. T
 
 ## How matching works
 
+The page also uses what your scraper saved in `gamelist.xml` (RetroBat and Batocera use the same format):
+
+- **name**: the proper game name, which is what makes arcade short names (`sf2.zip`) match;
+- **releasedate**: a ROM can't be a game first released later, so *Street Fighter* (1987) doesn't count as *Street Fighter: The Movie* (1995);
+- **cheevosId**: the RetroAchievements game ID gives an exact match for the RetroAchievements list.
+
+Loose matches (a subtitle added or dropped) are also checked against every game known on the platform, so a ROM of *Speedy Gonzales* isn't taken as *Speedy Gonzales: Aztec Adventure*. Arcade `family` values (a whole series, such as "Street Fighter") are deliberately not used.
+
 Titles are compared after removing region and dump tags (`(USA)`, `[!]`), punctuation, "The" and "Version", and turning roman numerals into numbers, so `Legend of Zelda, The - A Link to the Past (USA).sfc` matches *The Legend of Zelda: A Link to the Past*. Names from `gamelist.xml` are used too, which is what makes arcade short names (`sf2.zip`) match. Alternative titles from Wikidata are also tried.
 
 ## Reading the RGSX database
@@ -139,7 +167,7 @@ This writes `dist/rgsx-library-checker.html`, `dist/list-grabber.js`, `dist/itch
 | `tools/list-grabber.js`, `tools/itch-refresh.js` | Browser scripts (sources) |
 | `vendor/` | sql.js 1.10.3 (MIT) |
 
-Tests: `cd test && npm install && npm test` (Playwright, headless Chromium).
+Tests: `cd test && npm install && npm test` (Playwright, headless Chromium). The suite generates two random libraries with `test/make-test-library.py` (a RetroBat folder and a Batocera share with ROMs, gamelists, an RGSX database with uncommitted WAL rows, and an `expected.json`) and checks the page against them. Run `python3 test/make-test-library.py --help` to make your own test data.
 
 ## Credits and licences
 

@@ -36,6 +36,7 @@ const check = (name, cond, extra = '') => (cond ? ok : bad).push(name + (extra ?
   fs.mkdirSync(path.join(__dirname, 'shots'), { recursive: true });
   const shot = n => p.screenshot({ path: path.join(__dirname, 'shots', n + '.png'), fullPage: false });
 
+  check('setup check opens on first run', (await p.textContent('#main')).includes('Setup check') && (await p.textContent('#main')).includes('first connect'));
   // Help and settings pages
   await p.click('nav [data-tab=help]'); await p.waitForTimeout(200); await shot('f1-help');
   check('help page', (await p.textContent('#main')).includes('API keys and encryption'));
