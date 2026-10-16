@@ -28,7 +28,7 @@ button.small { padding: 3px 8px; font-size: 12px; }
 button:disabled { opacity: .5; cursor: default; }
 select, input[type=text], input[type=search], textarea { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
 textarea { width: 100%; min-height: 120px; }
-header { display: flex; align-items: center; gap: 16px; padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
+header { display: flex; align-items: center; gap: 12px; padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
 header h1 { font-size: 17px; margin: 0; letter-spacing: .2px; }
 header h1 span { color: var(--muted); font-weight: 400; }
 nav { display: flex; gap: 4px; flex-wrap: wrap; }
@@ -85,6 +85,10 @@ pre { background: var(--panel2); padding: 10px; border-radius: 8px; overflow: au
 .modal li { margin: 8px 0; }
 .modal .foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 18px; flex-wrap: wrap; }
 .hidden { display: none !important; }
+.langs { display: flex; gap: 4px; }
+.flag { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; font-size: 12px; background: transparent; }
+.flag svg { border-radius: 2px; box-shadow: 0 0 0 1px var(--line); }
+.flag.on { background: var(--chip); border-color: var(--accent); font-weight: 600; }
 .right { text-align: right; }
 .empty { padding: 30px; text-align: center; color: var(--muted); }
 </style>
@@ -94,25 +98,35 @@ pre { background: var(--panel2); padding: 10px; border-radius: 8px; overflow: au
   <h1>RGSX Library Checker <span id="ver"></span></h1>
   <nav id="tabs">
     <button data-tab="library" class="on">Library</button>
-    <button data-tab="topn">Top N</button>
+    <button data-tab="topn">Top lists</button>
     <button data-tab="free">Free games</button>
     <button data-tab="settings">Settings</button>
+    <button data-tab="help">Help</button>
   </nav>
   <div class="grow"></div>
   <div class="status" id="status"></div>
-  <button class="small" id="helpBtn" title="Getting started">?</button>
+  <div class="langs" role="group" aria-label="Language">
+    <button class="flag" data-lang="en" title="English" aria-label="English"><svg viewBox="0 0 60 30" width="22" height="12" aria-hidden="true"><clipPath id="fu"><path d="M0 0v30h60V0z"/></clipPath><clipPath id="ft"><path d="M30 15h30v15zv15H0zH0V0zV0h30z"/></clipPath><g clip-path="url(#fu)"><path d="M0 0v30h60V0z" fill="#012169"/><path d="M0 0l60 30m0-30L0 30" stroke="#fff" stroke-width="6"/><path d="M0 0l60 30m0-30L0 30" clip-path="url(#ft)" stroke="#C8102E" stroke-width="4"/><path d="M30 0v30M0 15h60" stroke="#fff" stroke-width="10"/><path d="M30 0v30M0 15h60" stroke="#C8102E" stroke-width="6"/></g></svg>EN</button>
+    <button class="flag" data-lang="fr" title="Français" aria-label="Français"><svg viewBox="0 0 3 2" width="18" height="12" aria-hidden="true"><path fill="#002395" d="M0 0h1v2H0z"/><path fill="#fff" d="M1 0h1v2H1z"/><path fill="#ED2939" d="M2 0h1v2H2z"/></svg>FR</button>
+    <button class="flag" data-lang="es" title="Español" aria-label="Español"><svg viewBox="0 0 3 2" width="18" height="12" aria-hidden="true"><path fill="#AA151B" d="M0 0h3v2H0z"/><path fill="#F1BF00" d="M0 .5h3v1H0z"/></svg>ES</button>
+  </div>
 </header>
 <main id="main"></main>
 <div class="overlay hidden" id="intro"></div>
 
 <script>/*__SQLJS__*/</script>
 <script>/*__SOURCES__*/</script>
+<script>/*__EXTRACT__*/</script>
+<script>const I18N = /*__I18N__*/{};</script>
+<script>/*__I18NJS__*/</script>
 <script>
 const SYSTEMS = /*__SYSTEMS__*/{};
 const SNAPSHOT = /*__SNAPSHOT__*/{};
 const ITCH_BUNDLED = /*__ITCH__*/null;
 const ITCH_TAGS = /*__ITCH_TAGS__*/{};
 const ITCH_SCRIPT = /*__ITCH_SCRIPT__*/'';
+const SITE_LISTS = /*__SITE_LISTS__*/{};
+const GRABBER_SCRIPT = /*__GRABBER__*/'';
 const SQL_WASM_B64 = '/*__WASM__*/';
 const APP_VERSION = '/*__VERSION__*/';
 </script>

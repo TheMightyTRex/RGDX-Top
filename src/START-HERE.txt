@@ -1,0 +1,33 @@
+RGSX Library Checker {VERSION}
+==============================
+
+Shows the games you have installed in RetroBat or Batocera, compares each
+system with Top 10 to Top 500 lists, and suggests top free games.
+
+HOW TO USE
+
+1. Copy "rgsx-library-checker.html" into your RetroBat folder
+   (for example C:\RetroBat), or the Batocera "share" folder.
+
+2. Double-click it to open it in Google Chrome or Microsoft Edge.
+   (Firefox and Safari can't open folders from a web page.)
+   If it opens in another browser, right-click the file > Open with > Chrome.
+
+3. Click "Choose this page's folder..." and choose the folder you copied it
+   into. Click "View files", then "Save changes" / "Allow".
+
+That's it. The page finds your roms folder and the RGSX database by itself.
+Click Help in the page for everything else.
+
+WHAT'S IN THE "extras" FOLDER
+
+You don't need these to start. The page can copy them for you too.
+- list-grabber.js : imports a top list from a website (Settings > a system).
+- itch-refresh.js : refreshes the free itch.io games list.
+
+FILES THE PAGE CREATES (next to it)
+
+- rgsx-library-checker.config.json  your settings (API keys are encrypted)
+- rgsx-library-checker-cache\       caches; safe to delete
+
+It never changes your ROMs or the RGSX database.

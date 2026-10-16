@@ -13,3 +13,4 @@ Thumbs.db
 test/node_modules/
 test/shots/
 test/package-lock.json
+test/out/

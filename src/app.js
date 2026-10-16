@@ -1,15 +1,28 @@
 'use strict';
 /* RGSX Library Checker: shows the ROMs installed in a RetroBat / Batocera library, compares each system
-   against Top N lists, and lists top free games from itch.io. Runs from a local file in Chrome or Edge. */
+   against top lists, and lists top free games from itch.io. Runs from a local file in Chrome or Edge. */
 
 const CONFIG_NAME = 'rgsx-library-checker.config.json';
 const CACHE_DIR = 'rgsx-library-checker-cache';
 const TOP_SIZES = [10, 50, 100, 200, 500];
 const SOURCE_INFO = {
-  wikidata: { name: 'Most notable (Wikidata)', about: 'Games on the platform ranked by how many Wikipedia language editions cover them. Open CC0 data; works for almost every system.' },
-  sales:    { name: 'Best-selling (Wikipedia)', about: 'The "List of best-selling … video games" article for the platform, in sales order. Only major consoles have one.' },
-  critics:  { name: "Critics' all-time best (Wikipedia)", about: 'Wikipedia\'s "List of video games listed among the best", filtered to this platform. Short lists, high quality.' },
-  blend:    { name: 'Blended (all sources)', about: 'The three lists above combined with reciprocal-rank fusion: games that rank high in several lists rise to the top.' },
+  wikidata:   { name: 'Most notable (Wikidata)', group: 'built-in', about: 'Games on the platform ranked by how many Wikipedia language editions cover them. Open CC0 data; works for almost every system.' },
+  pageviews:  { name: 'Most read on Wikipedia (12 months)', group: 'built-in', about: 'The same games ranked by English Wikipedia page views over the last 12 full months: what people are reading about now. Multi-platform hits rank high.' },
+  exclusives: { name: 'Notable exclusives (Wikidata)', group: 'built-in', about: 'Like "Most notable", but only games whose only listed platform is this one, so ports of Tetris and Doom don\'t crowd the list.' },
+  reviews:    { name: 'Review scores (Wikidata)', group: 'built-in', about: 'Review scores Wikidata records for this platform\'s version (Metacritic, GameRankings, magazines), averaged and ranked with a Bayesian average. Strong for 16-bit computers, thin for some consoles.' },
+  sales:      { name: 'Best-selling (Wikipedia)', group: 'built-in', about: 'The "List of best-selling … video games" article for the platform, in sales order. Only major consoles have one.' },
+  critics:    { name: "Critics' all-time best (Wikipedia)", group: 'built-in', about: 'Wikipedia\'s "List of video games listed among the best", filtered to this platform. Short lists, high quality.' },
+  blend:      { name: 'Blended (all built-in sources)', group: 'built-in', about: 'Every built-in list for the system combined with reciprocal-rank fusion: games that rank high in several lists rise to the top.' },
+  ra:         { name: 'Most played (RetroAchievements)', group: 'api', service: 'ra', about: 'Number of RetroAchievements players per game. Needs your free RetroAchievements web API key (Settings > API keys). Checks the games that appear in the built-in lists, so it takes a few minutes per system and is cached.' },
+  rawg_rating:{ name: 'User rating (RAWG)', group: 'api', service: 'rawg', about: 'RAWG users\' ratings, highest first, games with at least 5 ratings. Needs a free RAWG API key.' },
+  rawg_meta:  { name: 'Metacritic score (RAWG)', group: 'api', service: 'rawg', about: 'Metacritic scores held by RAWG, highest first. Needs a free RAWG API key.' },
+  rawg_added: { name: 'Most added to collections (RAWG)', group: 'api', service: 'rawg', about: 'How many RAWG users have the game in their library: a popularity measure. Needs a free RAWG API key.' },
+};
+const BUILTIN = ['wikidata', 'pageviews', 'exclusives', 'reviews', 'sales', 'critics'];
+const API_SOURCES = ['ra', 'rawg_rating', 'rawg_meta', 'rawg_added'];
+const SERVICES = {
+  ra: { name: 'RetroAchievements', keyName: 'Web API key', help: 'Sign in at retroachievements.org, open Settings, and copy the "Web API Key" under Keys.', link: 'https://retroachievements.org/settings', test: k => ApiSources.raGet('API_GetConsoleIDs.php', {}, k) },
+  rawg: { name: 'RAWG', keyName: 'API key', help: 'Create a free account at rawg.io and request a key on the API page.', link: 'https://rawg.io/apidocs', test: k => ApiSources.rawgGet('platforms', { page_size: 1 }, k) },
 };
 const GENRES = { 'action': 'Action', 'adventure': 'Adventure', 'card-game': 'Card game', 'educational': 'Educational', 'fighting': 'Fighting',
   'interactive-fiction': 'Interactive fiction', 'platformer': 'Platformer', 'puzzle': 'Puzzle', 'racing': 'Racing', 'rhythm': 'Rhythm',
@@ -48,9 +61,9 @@ function defaultConfig() {
     app: 'RGSX Library Checker', configVersion: 1, showGettingStarted: true,
     paths: { appFolder: '', retrobatFolder: '', romsFolder: '', rgsxFolder: '' },
     topN: { source: 'wikidata', size: 100, system: '', show: 'all' },
-    library: { show: 'all' },
+    lang: 'en', library: { show: 'all' },
     free: { mode: 'retro', system: '', genre: 'all', pcGenre: 'all' },
-    customLists: [], wishlist: {}, updated: '',
+    customLists: [], wishlist: {}, vault: { mode: 'device', items: {} }, updated: '',
   };
 }
 
@@ -58,10 +71,11 @@ function defaultConfig() {
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const fmtDate = s => { try { return new Date(s).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }); } catch { return s; } };
+const fmtDate = s => { try { return new Date(s).toLocaleDateString(LANG === 'en' ? undefined : LANG, { day: 'numeric', month: 'short', year: 'numeric' }); } catch { return s; } };
 const extOf = n => { const i = n.lastIndexOf('.'); return i > 0 ? n.slice(i + 1).toLowerCase() : ''; };
 const stripExt = n => n.replace(/\.(?:p8\.png|[a-z0-9]{1,5})$/i, '');
 const fsSupported = 'showDirectoryPicker' in window;
+const D = s => `<span translate="no">${esc(fmtDate(s))}</span>`; // dates in HTML, kept out of text matching
 const FOLDER2SYS = {};
 for (const [k, v] of Object.entries(SYSTEMS)) { FOLDER2SYS[k] = k; (v.aliases || []).forEach(a => FOLDER2SYS[a] = k); }
 const sysLabel = f => (SYSTEMS[FOLDER2SYS[f]] || {}).label || f;
@@ -83,6 +97,10 @@ function cleanName(file) { return stripExt(file).replace(/\s*[\(\[][^\)\]]*[\)\]
 
 function toast(msg, kind = 'info') {
   S.errors.unshift({ msg, kind, at: Date.now() }); S.errors = S.errors.slice(0, 5); render();
+}
+// A message with names in it: translated as a whole sentence (see T in i18n.js).
+function toastT(tpl, vars, kind = 'info') {
+  S.errors.unshift({ html: T(tpl, vars), kind, at: Date.now() }); S.errors = S.errors.slice(0, 5); render();
 }
 
 /* ------------------------------------------------------------------ IndexedDB (folder handles) */
@@ -121,9 +139,10 @@ async function perm(h, mode, ask) {
     return ask ? (await h.requestPermission({ mode })) === 'granted' : false;
   } catch { return false; }
 }
-async function looksLikeRoms(d) {
+// A folder counts as a roms folder when it holds known system folders (one is enough when it's called "roms").
+async function looksLikeRoms(d, need = 1) {
   if (!d) return false; let n = 0;
-  try { for await (const [name, h] of d.entries()) { if (h.kind === 'directory' && FOLDER2SYS[name.toLowerCase()]) n++; if (n >= 3) return true; } } catch { }
+  try { for await (const [name, h] of d.entries()) { if (h.kind === 'directory' && FOLDER2SYS[name.toLowerCase()]) n++; if (n >= need) return true; } } catch { }
   return false;
 }
 /* Given a folder, work out where the roms and the RGSX data are. Handles a RetroBat root, a Batocera share,
@@ -139,7 +158,7 @@ async function locate(root) {
       return out;
     }
   }
-  if (await looksLikeRoms(root)) out.roms = root;
+  if (await looksLikeRoms(root, 3)) out.roms = root;
   return out;
 }
 async function isRgsxFolder(d) { return !!(await tryFile(d, 'rgsx.sqlite3')); }
@@ -161,7 +180,7 @@ function saveConfig() {
     ls.set('rlc.hideIntro', S.config.showGettingStarted ? null : '1');
     if (!S.handles.app || !S.writable) return;
     try { await writeText(S.handles.app, CONFIG_NAME, JSON.stringify(S.config, null, 2)); }
-    catch (e) { toast('Could not write the config file: ' + e.message, 'err'); }
+    catch (e) { toastT('Could not write the config file: {error}', { error: e.message }, 'err'); }
   }, 400);
 }
 async function cacheDir(create) {
@@ -177,7 +196,8 @@ function mergeConfig(c) {
   const d = defaultConfig();
   if (!c || typeof c !== 'object') return d;
   return { ...d, ...c, paths: { ...d.paths, ...(c.paths || {}) }, library: { ...d.library, ...(c.library || {}) }, topN: { ...d.topN, ...(c.topN || {}) }, free: { ...d.free, ...(c.free || {}) },
-    customLists: Array.isArray(c.customLists) ? c.customLists : [], wishlist: c.wishlist && typeof c.wishlist === 'object' ? c.wishlist : {} };
+    customLists: Array.isArray(c.customLists) ? c.customLists : [], wishlist: c.wishlist && typeof c.wishlist === 'object' ? c.wishlist : {},
+    vault: c.vault && c.vault.items ? c.vault : d.vault };
 }
 
 /* ------------------------------------------------------------------ connect */
@@ -193,14 +213,14 @@ async function pickRetro() {
   try {
     const h = await window.showDirectoryPicker({ id: 'rlc-retro', mode: 'read' });
     const loc = await locate(h);
-    if (!loc.roms) { toast(`"${h.name}" does not look like a RetroBat / Batocera folder or a roms folder (no system folders such as nes or snes found).`, 'err'); return; }
+    if (!loc.roms) { toastT('"{folder}" does not look like a RetroBat / Batocera folder or a roms folder (no system folders such as nes or snes found).', { folder: h.name }, 'err'); return; }
     S.handles.retro = h; await idb.set('retro', h); await connect(false);
   } catch (e) { if (e.name !== 'AbortError') toast(e.message, 'err'); }
 }
 async function pickRgsx() {
   try {
     const h = await window.showDirectoryPicker({ id: 'rlc-rgsx', mode: 'read' });
-    if (!(await isRgsxFolder(h))) { toast(`No rgsx.sqlite3 in "${h.name}". The RGSX database lives in saves\\ports\\rgsx inside your RetroBat or Batocera folder.`, 'err'); return; }
+    if (!(await isRgsxFolder(h))) { toastT('No rgsx.sqlite3 in "{folder}". The RGSX database lives in saves\\ports\\rgsx inside your RetroBat or Batocera folder.', { folder: h.name }, 'err'); return; }
     S.handles.rgsx = h; await idb.set('rgsx', h); S.dirs.rgsx = h; S.config.paths.rgsxFolder = h.name; saveConfig(); await loadCatalog(false);
   } catch (e) { if (e.name !== 'AbortError') toast(e.message, 'err'); }
 }
@@ -218,6 +238,7 @@ async function connect(fresh) {
   if (cfg) S.config = mergeConfig(cfg);
   else if (!fresh) S.config = mergeConfig(S.config);
   if (ls.get('rlc.hideIntro')) S.config.showGettingStarted = false;
+  if (cfg && cfg.lang && cfg.lang !== LANG) setLang(cfg.lang, false); else S.config.lang = LANG;
   const pl = pageLocation();
   S.config.paths.appFolder = pl.folder || app.name;
   S.samePlace = pl.file ? !!(await tryFile(app, pl.file)) : null;
@@ -383,7 +404,7 @@ async function loadCatalog(force) {
     const sig = [dbf.size, dbf.lastModified, walf ? walf.size : 0, walf ? walf.lastModified : 0].join(':');
     if (!force) {
       const c = S.catalog && S.catalog.sig === sig ? S.catalog : await cacheRead('rgsx-catalog.json');
-      if (c && c.sig === sig) { S.catalog = c; S.catIndex = {}; render(); return; }
+      if (c && c.sig === sig) { c.dbModified ||= Math.max(dbf.lastModified, walf ? walf.lastModified : 0); S.catalog = c; S.catIndex = {}; render(); return; }
     }
     S.busy = 'Reading the RGSX database…'; renderStatus();
     const SQL = await getSql();
@@ -392,8 +413,9 @@ async function loadCatalog(force) {
     if (bytes[18] === 2) { bytes[18] = 1; bytes[19] = 1; }
     S.busy = 'Indexing the RGSX catalogue…'; renderStatus();
     const db = new SQL.Database(bytes); bytes = null;
-    const platforms = {}, names = {};
+    const platforms = {}, names = {}; let seq = null;
     try {
+      try { const r = db.exec("SELECT value FROM schema_meta WHERE key = 'catalog_sync_sequence'"); seq = r.length ? r[0].values[0][0] : null; } catch { }
       const st = db.prepare("SELECT p.folder, p.platform_name, g.name, g.display_name FROM games g JOIN platforms p ON p.id = g.platform_id WHERE p.folder <> '' AND p.folder <> 'bios'");
       while (st.step()) {
         const [folder, pname, name, disp] = st.get();
@@ -404,19 +426,177 @@ async function loadCatalog(force) {
       st.free();
     } finally { db.close(); }
     const counts = {}; for (const [f, l] of Object.entries(platforms)) counts[f] = l.length;
-    S.catalog = { sig, at: new Date().toISOString(), platforms, counts, sources: Object.fromEntries(Object.entries(names).map(([k, v]) => [k, [...v]])) };
+    S.catalog = { sig, at: new Date().toISOString(), dbModified: Math.max(dbf.lastModified, walf ? walf.lastModified : 0), seq, platforms, counts, sources: Object.fromEntries(Object.entries(names).map(([k, v]) => [k, [...v]])) };
     S.catIndex = {};
     await cacheWrite('rgsx-catalog.json', S.catalog);
   } catch (e) {
-    toast('Could not read the RGSX database: ' + e.message + ' (if RGSX is running, close it and press Reload catalogue).', 'err');
+    toastT('Could not read the RGSX database: {error} (if RGSX is running, close it and press Reload catalogue).', { error: e.message }, 'err');
   } finally { S.busy = ''; render(); }
+}
+
+/* ------------------------------------------------------------------ encrypted API keys */
+/* Keys are stored in the config file only as AES-GCM ciphertext.
+   "device" mode: the AES key is a non-extractable WebCrypto key kept in this browser's IndexedDB, so the config file
+   alone can't be decrypted anywhere else. "passphrase" mode: the AES key is derived from your passphrase with
+   PBKDF2-SHA256 (310,000 rounds); nothing that can decrypt is stored, and you unlock once per visit. */
+const b64 = { enc: u8 => btoa(String.fromCharCode(...new Uint8Array(u8))), dec: s => Uint8Array.from(atob(s), c => c.charCodeAt(0)) };
+const Vault = {
+  key: null, plain: {},
+  cfg() { return S.config.vault ||= { mode: 'device', items: {} }; },
+  async deviceKey() {
+    let k = await idb.get('vaultKey');
+    if (!k) { k = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']); await idb.set('vaultKey', k); }
+    return k;
+  },
+  async passKey(pass, salt) {
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 310000, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  },
+  async encrypt(key, text) { const iv = crypto.getRandomValues(new Uint8Array(12)); const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(text)); return { iv: b64.enc(iv), data: b64.enc(data) }; },
+  async decrypt(key, box) { return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64.dec(box.iv) }, key, b64.dec(box.data))); },
+  async unlock(interactive = true) {
+    if (this.key) return this.key;
+    const v = this.cfg();
+    if (v.mode !== 'passphrase') return this.key = await this.deviceKey();
+    if (!interactive) return null;
+    for (;;) {
+      const r = await dialog({ title: 'Unlock API keys', body: 'Enter the passphrase that protects your API keys.', fields: [{ id: 'pass', label: 'Passphrase', type: 'password' }], ok: 'Unlock' });
+      if (!r) return null;
+      const k = await this.passKey(r.pass, b64.dec(v.salt));
+      try { if ((await this.decrypt(k, v.check)) === 'rlc-ok') return this.key = k; } catch { }
+      toast('That passphrase is wrong.', 'err');
+    }
+  },
+  has(service) { return !!this.cfg().items[service]; },
+  async get(service, interactive = true) {
+    if (this.plain[service]) return this.plain[service];
+    const box = this.cfg().items[service]; if (!box) return null;
+    const k = await this.unlock(interactive); if (!k) return null;
+    try { return this.plain[service] = await this.decrypt(k, box); }
+    catch { toastT('The {svc} key can\'t be decrypted in this browser (it was saved on another device or browser). Enter it again in Settings > API keys.', { svc: SERVICES[service].name }, 'err'); return null; }
+  },
+  async set(service, text) {
+    const k = await this.unlock(true); if (!k) return false;
+    if (text) { this.cfg().items[service] = await this.encrypt(k, text); this.plain[service] = text; }
+    else { delete this.cfg().items[service]; delete this.plain[service]; }
+    saveConfig(); return true;
+  },
+  async setMode(mode) {
+    const v = this.cfg(); if (v.mode === mode) return;
+    const all = {}; for (const s of Object.keys(v.items)) { const t = await this.get(s); if (t == null) return toast('Unlock the keys first.', 'err'); all[s] = t; }
+    let key;
+    if (mode === 'passphrase') {
+      const r = await dialog({ title: 'Protect API keys with a passphrase', body: 'Choose a passphrase. You will need it each time you open the page, and on any other computer that uses this config file. It can\'t be recovered if you forget it; you would just enter the API keys again.', fields: [{ id: 'p1', label: 'Passphrase', type: 'password' }, { id: 'p2', label: 'Repeat passphrase', type: 'password' }], ok: 'Use passphrase' });
+      if (!r) return; if (r.p1.length < 8) return toast('Use at least 8 characters.', 'err'); if (r.p1 !== r.p2) return toast('The passphrases don\'t match.', 'err');
+      const salt = crypto.getRandomValues(new Uint8Array(16)); key = await this.passKey(r.p1, salt);
+      v.salt = b64.enc(salt); v.check = await this.encrypt(key, 'rlc-ok');
+    } else { key = await this.deviceKey(); delete v.salt; delete v.check; }
+    v.mode = mode; this.key = key; v.items = {};
+    for (const [s, t] of Object.entries(all)) v.items[s] = await this.encrypt(key, t);
+    saveConfig(); render();
+  },
+};
+
+/* ------------------------------------------------------------------ dialog */
+function dialog({ title, body, fields = [], ok = 'OK', cancel = 'Cancel' }) {
+  return new Promise(res => {
+    const o = document.createElement('div'); o.className = 'overlay';
+    o.innerHTML = `<form class="modal" style="max-width:460px"><h2>${esc(title)}</h2><p class="muted">${esc(body)}</p>
+      ${fields.map(f => `<label style="display:block;margin:10px 0">${esc(f.label)}<br><input type="${f.type || 'text'}" name="${f.id}" style="width:100%" autocomplete="off" value="${esc(f.value || '')}"></label>`).join('')}
+      <div class="foot"><span></span><div class="row"><button type="button" data-x>${esc(cancel)}</button><button class="primary" type="submit">${esc(ok)}</button></div></div></form>`;
+    const done = v => { o.remove(); res(v); };
+    o.querySelector('[data-x]').onclick = () => done(null);
+    o.querySelector('form').onsubmit = e => { e.preventDefault(); const v = {}; for (const f of fields) v[f.id] = o.querySelector(`[name="${f.id}"]`).value; done(v); };
+    document.body.appendChild(o); translateDom(o); const first = o.querySelector('input'); if (first) first.focus();
+  });
+}
+
+/* ------------------------------------------------------------------ API sources (need a key) */
+const ApiSources = {
+  async raGet(endpoint, params, key) {
+    const q = new URLSearchParams({ ...params, y: key });
+    const r = await fetch('https://retroachievements.org/API/' + endpoint + '?' + q);
+    if (r.status === 401 || r.status === 403) throw new Error('RetroAchievements rejected the API key');
+    if (r.status === 429) throw new Error('RetroAchievements rate limit reached; try again later');
+    if (!r.ok) throw new Error('RetroAchievements returned HTTP ' + r.status);
+    return r.json();
+  },
+  async rawgGet(path, params, key) {
+    const q = new URLSearchParams({ ...params, key });
+    let r; try { r = await fetch('https://api.rawg.io/api/' + path + '?' + q); } catch { throw new Error('RAWG could not be reached (or blocked the request)'); }
+    if (r.status === 401 || r.status === 403) throw new Error('RAWG rejected the API key');
+    if (!r.ok) throw new Error('RAWG returned HTTP ' + r.status);
+    return r.json();
+  },
+  async ra(sysKey, key, progress) {
+    const id = SYSTEMS[sysKey].ra; if (!id) return [];
+    const games = (await this.raGet('API_GetGameList.php', { i: id, f: 1 }, key)).filter(g => !/^~|\[Subset/i.test(g.Title));
+    const idx = buildIndex(games.map(g => ({ f: g.Title, id: g.ID })));
+    const pick = new Map();
+    for (const src of BUILTIN) { const l = rawList(src, sysKey); if (l) for (const e of l.items) { const m = findIn(idx, e); if (m) pick.set(m[0].id, m[0].f); } }
+    if (pick.size < 100) games.slice().sort((a, b) => b.Points - a.Points).slice(0, 150).forEach(g => pick.set(g.ID, g.Title));
+    const list = [...pick.entries()].slice(0, 400), out = [];
+    for (let i = 0; i < list.length; i++) {
+      const [gid, title] = list[i];
+      try { const g = await this.raGet('API_GetGameExtended.php', { i: gid }, key); out.push({ t: g.Title || title, p: +(g.NumDistinctPlayers ?? g.numDistinctPlayers ?? ((g.NumDistinctPlayersCasual || 0) + (g.NumDistinctPlayersHardcore || 0))) || 0 }); }
+      catch (e) { if (/rejected|rate limit/.test(e.message)) throw e; }
+      progress && progress(i + 1, list.length); await sleep(350);
+    }
+    return out.filter(g => g.p > 0).sort((a, b) => b.p - a.p).map(g => ({ t: g.t.replace(/\s*\|.*$/, ''), n: g.p.toLocaleString() + ' players' }));
+  },
+  rawgPlatforms: null,
+  async rawgPlatform(sysKey, key) {
+    const name = SYSTEMS[sysKey].rawg; if (!name) return null;
+    if (!this.rawgPlatforms) {
+      const all = []; let page = 1, more = true;
+      while (more && page < 5) { const j = await this.rawgGet('platforms', { page_size: 50, page }, key); all.push(...j.results); more = !!j.next; page++; }
+      this.rawgPlatforms = all;
+    }
+    const p = this.rawgPlatforms.find(x => x.name.toLowerCase() === name.toLowerCase());
+    return p ? p.id : null;
+  },
+  async rawg(sysKey, key, ordering, progress) {
+    const pid = await this.rawgPlatform(sysKey, key); if (!pid) return [];
+    const out = [];
+    for (let page = 1; page <= 13 && out.length < 500; page++) {
+      const j = await this.rawgGet('games', { platforms: pid, ordering, page_size: 40, page, ...(ordering === '-metacritic' ? { metacritic: '1,100' } : {}) }, key);
+      for (const g of j.results) {
+        if (ordering === '-rating' && (g.ratings_count || 0) < 5) continue;
+        const n = ordering === '-metacritic' ? `Metacritic ${g.metacritic}` : ordering === '-rating' ? `${g.rating}/5 from ${g.ratings_count} ratings` : `${(g.added || 0).toLocaleString()} collections`;
+        out.push({ t: g.name, y: g.released ? +g.released.slice(0, 4) : undefined, n });
+      }
+      progress && progress(page, 13);
+      if (!j.next) break; await sleep(250);
+    }
+    if (ordering === '-rating') out.sort((a, b) => parseFloat(b.n) - parseFloat(a.n));
+    return out;
+  },
+};
+const API_FETCH = {
+  ra: (k, key, p) => ApiSources.ra(k, key, p),
+  rawg_rating: (k, key, p) => ApiSources.rawg(k, key, '-rating', p),
+  rawg_meta: (k, key, p) => ApiSources.rawg(k, key, '-metacritic', p),
+  rawg_added: (k, key, p) => ApiSources.rawg(k, key, '-added', p),
+};
+function sourceAvailable(src, sysKey) {
+  const sys = SYSTEMS[sysKey] || {};
+  if (src === 'sales') return !!sys.sales; if (src === 'critics') return !!sys.best;
+  if (src === 'ra') return !!sys.ra; if (src.startsWith('rawg')) return !!sys.rawg;
+  if (src === 'blend') return true;
+  return !!(sys.wiki || []).length;
 }
 
 /* ------------------------------------------------------------------ top lists */
 function customListsFor(sysKey) { return S.config.customLists.filter(l => l.system === '*' || l.system === sysKey); }
 function sourceOptions(sysKey) {
-  const o = Object.keys(SOURCE_INFO).map(k => [k, SOURCE_INFO[k].name]);
-  for (const l of customListsFor(sysKey)) o.push(['custom:' + l.id, 'Custom: ' + l.name]);
+  const o = [];
+  for (const k of Object.keys(SOURCE_INFO)) {
+    if (sysKey && !sourceAvailable(k, sysKey)) continue;
+    const l = sysKey ? getList(k, sysKey) : null;
+    const needsKey = SOURCE_INFO[k].group === 'api' && !Vault.has(SOURCE_INFO[k].service);
+    o.push([k, SOURCE_INFO[k].name + (l ? ` (${l.items.length})` : needsKey ? ' (needs API key)' : sysKey ? ' (not downloaded)' : '')]);
+  }
+  for (const l of customListsFor(sysKey)) o.push(['custom:' + l.id, (l.url ? 'Website: ' : 'Custom: ') + l.name + ` (${l.items.length})`]);
   return o;
 }
 function rawList(source, sysKey) {
@@ -429,37 +609,52 @@ function rawList(source, sysKey) {
 function getList(source, sysKey) {
   if (source.startsWith('custom:')) {
     const l = S.config.customLists.find(x => 'custom:' + x.id === source);
-    return l ? { items: l.items.map(t => ({ t })), fetched: l.added, origin: 'custom' } : null;
+    return l ? { items: l.items.map(t => ({ t })), fetched: l.added, origin: 'custom', url: l.url } : null;
   }
-  if (source !== 'blend') return rawList(source, sysKey);
-  const K = 20, score = new Map(); let any = false, fetched = '';
-  for (const src of ['wikidata', 'sales', 'critics']) {
-    const l = rawList(src, sysKey); if (!l) continue; any = true; fetched = fetched > l.fetched ? fetched : l.fetched;
-    l.items.forEach((e, r) => {
+  if (source !== 'blend') {
+    const l = rawList(source, sysKey);
+    if (!l || !['pageviews', 'exclusives', 'reviews'].includes(source)) return l;
+    // These lists share their games with the Wikidata list; borrow its alternative titles for matching.
+    const wd = rawList('wikidata', sysKey); if (!wd) return l;
+    const alts = new Map(wd.items.filter(e => e.a).map(e => [norm(e.t), e.a]));
+    return { ...l, items: l.items.map(e => e.a || !alts.has(norm(e.t)) ? e : { ...e, a: alts.get(norm(e.t)) }) };
+  }
+  const K = 20, score = new Map(); let any = 0, fetched = '';
+  for (const src of BUILTIN) {
+    const l = rawList(src, sysKey); if (!l) continue; any++; fetched = fetched > l.fetched ? fetched : l.fetched;
+    l.items.slice(0, 500).forEach((e, r) => {
       const k = norm(e.t); let s = score.get(k);
       if (!s) score.set(k, s = { e: { t: e.t, y: e.y, a: [...(e.a || [])] }, v: 0, n: 0, from: [] });
-      if (src !== 'wikidata') s.e.t = e.t;
+      if (src === 'sales' || src === 'critics') s.e.t = e.t;
       if (!s.e.y && e.y) s.e.y = e.y;
       s.v += 1 / (K + r); s.n++; s.from.push(src);
     });
   }
   if (!any) return null;
-  const items = [...score.values()].sort((a, b) => b.v - a.v).map(s => ({ ...s.e, n: s.n > 1 ? `in ${s.n} lists` : SOURCE_INFO[s.from[0]].name.split(' (')[0] }));
+  const items = [...score.values()].sort((a, b) => b.v - a.v).map(s => ({ ...s.e, n: s.n > 1 ? `in ${s.n} of ${any} lists` : 'only in ' + SOURCE_INFO[s.from[0]].name.split(' (')[0] }));
   return { items, fetched, origin: 'blend' };
 }
 async function refreshLists(sysKeys, sources) {
-  let i = 0; const total = sysKeys.length * sources.length; let fails = 0;
-  for (const k of sysKeys) for (const src of sources) {
-    S.busy = `Downloading ${SOURCE_INFO[src].name} for ${SYSTEMS[k].label} (${++i}/${total})…`; renderStatus();
+  const jobs = []; for (const k of sysKeys) for (const src of sources) if (src !== 'blend' && sourceAvailable(src, k)) jobs.push([k, src]);
+  let i = 0, fails = 0; const errs = new Set();
+  for (const [k, src] of jobs) {
+    const label = `${SOURCE_INFO[src].name} for ${SYSTEMS[k].label} (${++i}/${jobs.length})`;
+    S.busy = 'Downloading ' + label + '…'; renderStatus();
+    const progress = (d, n) => { S.busy = `Downloading ${label}: ${d}/${n}…`; renderStatus(); };
     try {
-      const items = await Sources[src](SYSTEMS[k], 500);
-      if (items.length) { (S.lists[src] ||= {})[k] = { items, fetched: new Date().toISOString() }; }
-    } catch (e) { fails++; console.warn(src, k, e); }
+      let items;
+      if (SOURCE_INFO[src].group === 'api') {
+        const key = await Vault.get(SOURCE_INFO[src].service); if (!key) { errs.add(`No ${SERVICES[SOURCE_INFO[src].service].name} API key set (Settings > API keys).`); continue; }
+        items = await API_FETCH[src](k, key, progress);
+      } else if (src === 'pageviews') {
+        const base = rawList('wikidata', k); items = await Sources.pageviews(SYSTEMS[k], 500, base && base.items.some(e => e.w) ? base.items : null, progress);
+      } else items = await Sources[src](SYSTEMS[k], 500);
+      if (items.length) { (S.lists[src] ||= {})[k] = { items, fetched: new Date().toISOString() }; await cacheWrite('toplists.json', S.lists); }
+    } catch (e) { fails++; errs.add(e.message); console.warn(src, k, e); }
     await sleep(300);
   }
-  await cacheWrite('toplists.json', S.lists);
   S.busy = ''; render();
-  if (fails) toast(`${fails} list download(s) failed; the bundled copy is still used for those.`, 'warn');
+  if (fails || errs.size) toast(`${fails ? fails + ' download(s) failed. ' : ''}${[...errs].slice(0, 3).join(' ')}`, 'warn');
 }
 function compareSystem(sysKey, source, size) {
   const l = getList(source, sysKey); if (!l) return null;
@@ -482,13 +677,15 @@ function render() {
   renderStatus();
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === S.tab));
   const m = $('#main');
-  const notices = S.errors.filter(e => Date.now() - e.at < 20000).map(e => `<div class="notice ${e.kind === 'err' ? 'err' : e.kind === 'warn' ? '' : 'info'}">${esc(e.msg)}</div>`).join('');
+  const notices = S.errors.filter(e => Date.now() - e.at < 20000).map(e => `<div class="notice ${e.kind === 'err' ? 'err' : e.kind === 'warn' ? '' : 'info'}">${e.html || esc(e.msg)}</div>`).join('');
   let body = '';
-  if (!fsSupported) body = `<div class="panel"><h2>This browser can't open folders</h2><p>RGSX Library Checker needs the File System Access API to read your ROM folders and write its config file. Open this page in <b>Google Chrome</b> or <b>Microsoft Edge</b> on Windows, macOS or Linux.</p></div>`;
+  if (S.tab === 'help') body = viewHelp();
+  else if (!fsSupported) body = `<div class="panel"><h2>This browser can't open folders</h2><p>RGSX Library Checker needs the File System Access API to read your ROM folders and write its config file. Open this page in <b>Google Chrome</b> or <b>Microsoft Edge</b> on Windows, macOS or Linux.</p></div>`;
   else if (!S.handles.app) body = connectPanel();
-  else if (S.needsReconnect) body = `<div class="panel"><h2>Allow access again</h2><p>Your browser needs you to confirm folder access each time this page is opened. Last folder: <b>${esc(S.handles.app.name)}</b>.</p><div class="row"><button class="primary" data-act="reconnect">Allow access to ${esc(S.handles.app.name)}</button><button data-act="pickApp">Choose a different folder</button></div></div>`;
-  else body = ({ library: viewLibrary, topn: viewTopN, free: viewFree, settings: viewSettings })[S.tab]();
+  else if (S.needsReconnect) body = `<div class="panel"><h2>Allow access again</h2><p>Your browser needs you to confirm folder access each time this page is opened. Last folder: <b>${esc(S.handles.app.name)}</b>.</p><div class="row"><button class="primary" data-act="reconnect">${T('Allow access to {folder}', { folder: S.handles.app.name })}</button><button data-act="pickApp">Choose a different folder</button></div></div>`;
+  else body = ({ library: viewLibrary, topn: viewTopN, free: viewFree, settings: viewSettings, help: viewHelp })[S.tab]();
   m.innerHTML = notices + body;
+  translateDom(m); translateDom(document.querySelector('header'));
   if (S.config.showGettingStarted && !ls.get('rlc.hideIntro') && !S.introDismissed && $('#intro').classList.contains('hidden')) showIntro();
 }
 function renderStatus() {
@@ -499,7 +696,7 @@ function renderStatus() {
     if (!S.writable) chips.push(`<span class="chip warn" title="Settings can't be saved to the folder">Read-only</span>`);
   }
   if (S.busy) chips.unshift(`<span class="chip warn">${esc(S.busy)}</span>`);
-  $('#status').innerHTML = chips.join('');
+  $('#status').innerHTML = chips.join(''); translateDom($('#status'));
   $('#ver').textContent = 'v' + APP_VERSION;
 }
 function connectPanel() {
@@ -517,7 +714,7 @@ function viewLibrary() {
   const rows = S.folders.filter(x => !f || x.includes(f) || sysLabel(x).toLowerCase().includes(f))
     .filter(x => show === 'all' || (show === 'empty' ? count(x) === 0 : count(x) !== 0)).map(x => {
     const n = S.scan[x] ? S.scan[x].roms.length : null, c = S.catalog && S.catalog.counts[x];
-    return `<div class="sysitem ${x === S.sel ? 'on' : ''}" data-sel="${esc(x)}"><span>${esc(sysLabel(x))}<br><small>${esc(x)}</small></span><span class="right">${n == null ? '<small>…</small>' : n.toLocaleString()}${c ? `<br><small>RGSX ${c.toLocaleString()}</small>` : ''}</span></div>`;
+    return `<div class="sysitem ${x === S.sel ? 'on' : ''}" data-sel="${esc(x)}"><span translate="no">${esc(sysLabel(x))}<br><small>${esc(x)}</small></span><span class="right">${n == null ? '<small>…</small>' : n.toLocaleString()}${c ? `<br><small>RGSX ${c.toLocaleString()}</small>` : ''}</span></div>`;
   }).join('');
   const total = Object.values(S.scan).reduce((a, s) => a + s.roms.length, 0);
   const withRoms = Object.values(S.scan).filter(s => s.roms.length).length;
@@ -529,11 +726,11 @@ function viewLibrary() {
     const list = q ? sc.roms.filter(r => norm((r.n || '') + ' ' + r.f + ' ' + r.d).includes(q)) : sc.roms;
     const shown = list.slice(0, S.libLimit);
     const sysKey = FOLDER2SYS[S.sel];
-    right = `<div class="row"><h2 style="margin:0">${esc(sysLabel(S.sel))}</h2><span class="muted">${sc.roms.length.toLocaleString()} files · scanned ${fmtDate(sc.at)}</span><div class="grow"></div>
+    right = `<div class="row"><h2 style="margin:0">${esc(sysLabel(S.sel))}</h2><span class="muted">${sc.roms.length.toLocaleString()} files · scanned ${D(sc.at)}</span><div class="grow"></div>
       <input type="search" id="libFilter" placeholder="Filter…" value="${esc(S.libFilter)}">
-      <button class="small" data-act="scanOne">Rescan</button>${sysKey ? `<button class="small" data-act="toTop">Compare with Top N</button>` : ''}</div>
-      ${S.catalog && S.catalog.sources[S.sel] ? `<p class="muted">RGSX catalogue for <code>${esc(S.sel)}</code>: ${(S.catalog.counts[S.sel] || 0).toLocaleString()} games from ${S.catalog.sources[S.sel].map(esc).join(', ')}.</p>` : ''}
-      <table><thead><tr><th>Game</th><th>File</th><th>Folder</th></tr></thead><tbody>
+      <button class="small" data-act="scanOne">Rescan</button>${sysKey ? `<button class="small" data-act="toTop">Compare with top lists</button>` : ''}</div>
+      ${S.catalog && S.catalog.sources[S.sel] ? `<p class="muted">${T('RGSX catalogue for {folder}: {n} games from {sources}.', { folder: S.sel, n: (S.catalog.counts[S.sel] || 0).toLocaleString(), sources: S.catalog.sources[S.sel].join(', ') })}</p>` : ''}
+      <table><thead><tr><th>Game</th><th>File</th><th>Folder</th></tr></thead><tbody translate="no">
       ${shown.map(r => `<tr><td>${esc(r.n || cleanName(r.f))}</td><td class="muted">${esc(r.f)}</td><td class="muted">${esc(r.d)}</td></tr>`).join('')}
       </tbody></table>
       ${list.length > shown.length ? `<p class="row"><span class="muted">Showing ${shown.length.toLocaleString()} of ${list.length.toLocaleString()}.</span><button class="small" data-act="more">Show 1,000 more</button></p>` : ''}
@@ -557,13 +754,15 @@ function viewTopN() {
   const systems = topSystems();
   if (!systems.length) return `<div class="panel"><h2>Nothing to compare yet</h2><p>No supported system folders were found in your ROMs folder.</p></div>`;
   if (c.system && c.system !== '*' && !systems.includes(c.system)) c.system = '';
-  const sysOpts = `<option value="*" ${c.system === '*' || !c.system ? 'selected' : ''}>All systems (summary)</option>` + systems.map(k => `<option value="${k}" ${k === c.system ? 'selected' : ''}>${esc(SYSTEMS[k].label)}</option>`).join('');
-  const srcOpts = sourceOptions(c.system && c.system !== '*' ? c.system : '').map(([v, n]) => `<option value="${esc(v)}" ${v === c.source ? 'selected' : ''}>${esc(n)}</option>`).join('');
+  const sysOpts = `<option value="*" ${c.system === '*' || !c.system ? 'selected' : ''}>All systems (summary)</option>` + systems.map(k => `<option translate="no" value="${k}" ${k === c.system ? 'selected' : ''}>${esc(SYSTEMS[k].label)}</option>`).join('');
+  const opts = sourceOptions(c.system && c.system !== '*' ? c.system : '');
+  if (!opts.some(([v]) => v === c.source)) opts.unshift([c.source, ((SOURCE_INFO[c.source] || {}).name || 'Removed list') + ' (not available for this system)']);
+  const srcOpts = opts.map(([v, n]) => `<option value="${esc(v)}" ${v === c.source ? 'selected' : ''}>${esc(n)}</option>`).join('');
   const controls = `<div class="panel"><div class="row">
     <label>System <select id="tnSystem">${sysOpts}</select></label>
     <label>Source <select id="tnSource">${srcOpts}</select></label>
     <label>Top <select id="tnSize">${TOP_SIZES.map(n => `<option ${n === +c.size ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
-    ${c.system && c.system !== '*' ? `<label>Show <select id="tnShow"><option value="all">All</option><option value="miss" ${c.show === 'miss' ? 'selected' : ''}>Missing only</option><option value="have" ${c.show === 'have' ? 'selected' : ''}>Installed only</option></select></label>` : ''}
+    ${c.system && c.system !== '*' ? `<label>Status <select id="tnShow">${[['all', 'All'], ['have', 'Installed'], ['miss', 'Missing'], ['cat', 'In RGSX catalogue']].map(([v, n]) => `<option value="${v}" ${c.show === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label>` : ''}
     <div class="grow"></div>
     ${c.source.startsWith('custom:') ? '' : `<button data-act="refreshLists">Update from the internet</button>`}
     ${c.system && c.system !== '*' ? `<button data-act="exportMissing">Export missing (CSV)</button>` : ''}
@@ -574,26 +773,34 @@ function viewTopN() {
     const rows = systems.map(k => ({ k, r: compareSystem(k, c.source, +c.size) })).filter(x => x.r);
     const body = rows.map(({ k, r }) => {
       const n = r.items.length, p = n ? Math.round(100 * r.have / n) : 0;
-      return `<tr data-sys="${k}" style="cursor:pointer"><td>${esc(SYSTEMS[k].label)}<br><small class="muted">${r.folders.map(esc).join(', ')}</small></td><td>${r.have} / ${n}${n < +c.size ? ` <span class="tag" title="This source has fewer than ${c.size} games for the system">list has ${n}</span>` : ''}</td><td><div class="bar"><i style="width:${p}%"></i></div></td><td>${p}%</td><td class="muted">${r.list.origin === 'live' ? 'updated ' : r.list.origin === 'bundled' ? 'bundled ' : ''}${r.list.fetched ? fmtDate(r.list.fetched) : ''}</td></tr>`;
+      return `<tr data-sys="${k}" style="cursor:pointer"><td translate="no">${esc(SYSTEMS[k].label)}<br><small class="muted">${r.folders.map(esc).join(', ')}</small></td><td>${r.have} / ${n}${n < +c.size ? ` <span class="tag" title="This source has fewer than ${c.size} games for the system">list has ${n}</span>` : ''}</td><td><div class="bar"><i style="width:${p}%"></i></div></td><td>${p}%</td><td class="muted">${r.list.origin === 'live' ? 'updated ' : r.list.origin === 'bundled' ? 'bundled ' : ''}${r.list.fetched ? D(r.list.fetched) : ''}</td></tr>`;
     }).join('');
     const none = systems.length - rows.length;
     return controls + scanNote + `<div class="panel"><h2>Top ${c.size} coverage by system</h2>${rows.length ? `<table><thead><tr><th>System</th><th>Installed</th><th></th><th></th><th>List date</th></tr></thead><tbody>${body}</tbody></table>` : '<div class="empty">This source has no lists for your systems.</div>'}
       ${none ? `<p class="muted">${none} of your systems have no list in this source. Try "Most notable (Wikidata)", or add a custom list in Settings.</p>` : ''}</div>`;
   }
   const r = compareSystem(c.system, c.source, +c.size);
-  if (!r) return controls + `<div class="panel"><div class="empty">${esc(SOURCE_INFO[c.source]?.name || 'This list')} has nothing for ${esc(SYSTEMS[c.system].label)}. Try another source or press "Update from the internet".</div></div>`;
+  if (!r) {
+    const info = SOURCE_INFO[c.source] || {}, needsKey = info.group === 'api' && !Vault.has(info.service);
+    const src = tr(info.name || 'This list'), sysName = SYSTEMS[c.system].label;
+    const msg = !sourceAvailable(c.source, c.system) ? T('{src} doesn\'t cover {sys}. Choose another source.', { src, sys: sysName })
+      : needsKey ? T('{src} needs a {svc} API key.', { src, svc: SERVICES[info.service].name }) + ` <button class="small" data-setpage="keys">Add it in Settings</button>`
+      : T('{src} hasn\'t been downloaded for {sys} yet. Press "Update from the internet".', { src, sys: sysName });
+    return controls + `<div class="panel"><div class="empty">${msg}</div></div>`;
+  }
   const wl = S.config.wishlist[c.system] || [];
-  const items = r.items.filter(x => c.show === 'all' || (c.show === 'miss' ? !x.have : !!x.have));
+  // Status filter: all, installed, missing, or missing but available in the RGSX catalogue.
+  const items = r.items.filter(x => c.show === 'have' ? !!x.have : c.show === 'miss' ? !x.have : c.show === 'cat' ? !x.have && !!x.cat : true);
   const rows = items.map(x => {
     const k = norm(x.e.t), star = wl.includes(k);
-    return `<tr class="${x.have ? 'have' : 'miss'}"><td class="num">${x.rank}</td><td><b>${esc(x.e.t)}</b>${x.e.y ? ` <span class="muted">(${x.e.y})</span>` : ''}${x.e.n ? `<br><small class="muted">${esc(x.e.n)}</small>` : ''}</td>
-      <td>${x.have ? `<span class="tag ok">Installed</span> <small class="muted">${esc(x.have[0].f)}${x.have.length > 1 ? ` +${x.have.length - 1}` : ''}</small>` : `<span class="tag no">Missing</span>${x.cat ? ` <span class="tag warn" title="${esc(x.cat[0].f)}">In RGSX catalogue</span>` : ''}`}</td>
+    return `<tr class="${x.have ? 'have' : 'miss'}"><td class="num">${x.rank}</td><td><b translate="no">${esc(x.e.t)}</b>${x.e.y ? ` <span class="muted">(${x.e.y})</span>` : ''}${x.e.n ? `<br><small class="muted">${esc(x.e.n)}</small>` : ''}</td>
+      <td>${x.have ? `<span class="tag ok">Installed</span> <small class="muted" translate="no">${esc(x.have[0].f)}${x.have.length > 1 ? ` +${x.have.length - 1}` : ''}</small>` : `<span class="tag no">Missing</span>${x.cat ? ` <span class="tag warn" title="${esc(x.cat[0].f)}">In RGSX catalogue</span>` : ''}`}</td>
       <td class="right"><button class="small" data-star="${esc(k)}" title="Wishlist">${star ? '★' : '☆'}</button></td></tr>`;
   }).join('');
-  return controls + scanNote + `<div class="panel"><div class="row"><h2 style="margin:0">${esc(SYSTEMS[c.system].label)} · Top ${c.size}</h2>
+  return controls + scanNote + `<div class="panel"><div class="row"><h2 style="margin:0"><span translate="no">${esc(SYSTEMS[c.system].label)}</span> · Top ${c.size}</h2>
     <span class="tag ok">${r.have} installed</span><span class="tag no">${r.items.length - r.have} missing</span>
     ${S.catalog ? `<span class="tag warn">${r.items.filter(x => !x.have && x.cat).length} of the missing are in the RGSX catalogue</span>` : ''}
-    <div class="grow"></div><span class="muted">${r.list.origin === 'bundled' ? 'Bundled list from ' : r.list.origin === 'live' ? 'Updated ' : ''}${r.list.fetched ? fmtDate(r.list.fetched) : ''}${r.items.length < +c.size ? ` · source has ${r.items.length} games` : ''}</span></div>
+    <div class="grow"></div><span class="muted">${r.list.origin === 'bundled' ? 'Bundled list from ' : r.list.origin === 'live' ? 'Updated ' : ''}${r.list.fetched ? D(r.list.fetched) : ''}${r.items.length < +c.size ? ` · source has ${r.items.length} games` : ''}</span></div>
     <table style="margin-top:8px"><thead><tr><th>#</th><th>Game</th><th>Status</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="empty">Nothing to show.</td></tr>'}</tbody></table>
     <p class="muted">Matching uses the names in your gamelist.xml and the file names, ignoring region tags, punctuation, "The" and roman numerals. A game can still be missed if its file is named very differently.</p></div>`;
 }
@@ -608,15 +815,15 @@ function viewFree() {
   const head = `<div class="panel"><div class="row">
     <label><input type="radio" name="fmode" value="retro" ${mode === 'retro' ? 'checked' : ''}> Retro homebrew (ROMs for your systems)</label>
     <label><input type="radio" name="fmode" value="pc" ${mode === 'pc' ? 'checked' : ''}> PC &amp; browser games</label>
-    <div class="grow"></div><span class="muted">itch.io top-rated free games · ${d === ITCH_BUNDLED ? 'bundled' : 'updated'} ${fmtDate(d.fetched)}</span></div></div>`;
+    <div class="grow"></div><span class="muted">itch.io top-rated free games · ${d === ITCH_BUNDLED ? 'bundled' : 'updated'} ${D(d.fetched)}</span></div></div>`;
   let body = '';
   const card = (i, sysKey) => {
     const g = G[i]; if (!g) return '';
     let have = null;
     if (sysKey) for (const f of [...foldersFor(sysKey), ...(S.folders.includes(sysKey) ? [sysKey] : [])]) { have = findIn(localIndex(f), { t: g[0] }); if (have) break; }
     const plats = [...new Set((g[2] || '').split('').map(p => PLAT[p]).filter(Boolean))];
-    return `<div class="card"><b><a href="${esc(itchUrl(g[1]))}" target="_blank" rel="noopener">${esc(g[0])}</a></b> ${have ? '<span class="tag ok">Installed</span>' : ''}
-      <p>${esc(g[3] || '')}</p><div style="margin-top:6px">${plats.map(p => `<span class="tag">${p}</span>`).join('')}<span class="tag">by ${esc(g[1].split('~')[0])}</span></div></div>`;
+    return `<div class="card"><b translate="no"><a href="${esc(itchUrl(g[1]))}" target="_blank" rel="noopener">${esc(g[0])}</a></b> ${have ? '<span class="tag ok">Installed</span>' : ''}
+      <p translate="no">${esc(g[3] || '')}</p><div style="margin-top:6px">${plats.map(p => `<span class="tag">${p}</span>`).join('')}<span class="tag">by <span translate="no">${esc(g[1].split('~')[0])}</span></span></div></div>`;
   };
   if (mode === 'retro') {
     const s = d.sys[c.system] || { all: [], genres: {} };
@@ -626,7 +833,7 @@ function viewFree() {
     const ids = c.genre === 'all' ? s.all : s.genres[c.genre];
     const more = tag ? `https://itch.io/games/top-rated/free/${c.genre === 'all' ? '' : 'genre-' + c.genre + '/'}tag-${tag}` : '';
     body = `<div class="panel"><div class="row">
-      <label>System <select id="frSystem">${sysKeys.map(k => `<option value="${k}" ${k === c.system ? 'selected' : ''}>${esc(SYSTEMS[k]?.label || k)}${foldersFor(k).length || S.folders.includes(k) ? '' : ' (no folder)'}</option>`).join('')}</select></label>
+      <label>System <select id="frSystem">${sysKeys.map(k => `<option translate="no" value="${k}" ${k === c.system ? 'selected' : ''}>${esc(SYSTEMS[k]?.label || k)}${foldersFor(k).length || S.folders.includes(k) ? '' : ' ' + tr('(no folder)')}</option>`).join('')}</select></label>
       <label>Genre <select id="frGenre">${gopts}</select></label><div class="grow"></div>${more ? `<a href="${more}" target="_blank" rel="noopener">See more on itch.io ↗</a>` : ''}</div>
       <p class="muted">Homebrew tagged for this system on itch.io, filtered to free games without Windows, macOS, Linux or Android builds (those are usually PC games in a retro style). Check each page for the ROM file; save it into <code>roms\\${esc(foldersFor(c.system)[0] || c.system)}</code>.</p>
       <div class="cards">${(ids || []).map(i => card(i, c.system)).join('') || '<div class="empty">No games in this genre.</div>'}</div></div>`;
@@ -649,34 +856,180 @@ function viewFree() {
   return head + body + links;
 }
 
+/* ------------------------------------------------------------------ settings (side menu) */
+function siteListsFor(sysKey) {
+  const sys = SYSTEMS[sysKey] || {}, out = [...(SITE_LISTS[sysKey] || [])];
+  for (const [k, l] of Object.entries(SITE_LISTS)) if (k.startsWith('*')) for (const e of l) if ((e.systems || []).includes(sysKey)) out.push(e);
+  if (sys.moby) out.push({ name: 'MobyGames: ' + sys.label + ' by Moby score', url: `https://www.mobygames.com/platform/${sys.moby}/sort:-moby_score/`, rank: 'rating', note: 'Critic and user scores combined. The list is paged; grab each page you want.' });
+  if (sys.ra) out.push({ name: 'RetroAchievements: ' + sys.label + ' games', url: `https://retroachievements.org/system/${sys.ra}/games`, rank: 'players', note: 'Sort the table by Players, then grab it. With an API key the built-in "Most played" source does this for you.' });
+  return out;
+}
+function settingsSystems() {
+  const mine = Object.keys(SYSTEMS).filter(k => foldersFor(k).length);
+  const rest = Object.keys(SYSTEMS).filter(k => !mine.includes(k));
+  return { mine, rest };
+}
 function viewSettings() {
+  const page = S.setPage || 'general';
+  const f = (S.setSysFilter || '').toLowerCase();
+  const { mine, rest } = settingsSystems();
+  const item = (id, label, sub = '', data = false) => `<div class="sysitem ${page === id ? 'on' : ''}" data-setpage="${esc(id)}"><span${data ? ' translate="no"' : ''}>${esc(label)}${sub ? `<br><small>${esc(sub)}</small>` : ''}</span></div>`;
+  const sysItem = k => {
+    const n = customListsFor(k).filter(l => l.system === k).length;
+    return (!f || SYSTEMS[k].label.toLowerCase().includes(f) || k.includes(f)) ? item('sys:' + k, SYSTEMS[k].label, foldersFor(k).join(', ') + (n ? ` · ${n} list${n > 1 ? 's' : ''}` : ''), true) : '';
+  };
+  const menu = `<div class="panel"><b>Settings</b><div class="syslist" style="max-height:none">
+    ${item('general', 'General')}${item('folders', 'Folders')}${item('sources', 'Top list sources')}${item('keys', 'API keys')}${item('itch', 'itch.io data')}</div>
+    <div class="row" style="margin-top:14px"><b>Systems</b><span class="muted">lists per system</span></div>
+    <div class="row" style="margin-top:8px"><input type="search" id="setSysFilter" placeholder="Find a system…" value="${esc(S.setSysFilter || '')}" style="flex:1"></div>
+    <div class="syslist">${mine.map(sysItem).join('')}
+    ${S.showAllSys ? rest.map(sysItem).join('') : ''}
+    <div class="sysitem" data-act="toggleAllSys"><small>${S.showAllSys ? 'Hide systems without a ROM folder' : `Show ${rest.length} more systems without a ROM folder`}</small></div></div></div>`;
+  let body;
+  if (page.startsWith('sys:')) body = settingsSystem(page.slice(4));
+  else body = ({ general: settingsGeneral, folders: settingsFolders, sources: settingsSources, keys: settingsKeys, itch: settingsItch })[page]();
+  return `<div class="split"><div>${menu}</div><div>${body}</div></div>`;
+}
+function settingsGeneral() {
+  const cfg = JSON.stringify({ ...S.config, wishlist: `${Object.values(S.config.wishlist).flat().length} games`, customLists: `${S.config.customLists.length} lists`, vault: S.config.vault ? { mode: S.config.vault.mode, items: Object.keys(S.config.vault.items || {}).map(k => k + ' (encrypted)') } : undefined }, null, 2);
+  return `<div class="panel"><h2>General</h2><div class="row">
+    <label><input type="checkbox" id="optIntro" ${S.config.showGettingStarted ? 'checked' : ''}> Show the getting started page when this page opens</label></div>
+    <div class="row" style="margin-top:10px"><button data-act="intro">Open getting started</button><button data-tab="help">Open help</button><button data-act="forget">Forget folders</button></div>
+    <h3>Config file <code>${CONFIG_NAME}</code></h3><p class="muted">Saved next to this page. API keys in it are encrypted.</p><pre>${esc(cfg)}</pre></div>`;
+}
+function settingsFolders() {
   const p = S.config.paths;
-  const lists = S.config.customLists.map(l => `<tr><td>${esc(l.name)}</td><td>${l.system === '*' ? 'Any system' : esc(SYSTEMS[l.system]?.label || l.system)}</td><td>${l.items.length}</td><td class="right"><button class="small" data-dellist="${esc(l.id)}">Remove</button></td></tr>`).join('');
-  const cfg = JSON.stringify({ ...S.config, wishlist: `${Object.values(S.config.wishlist).flat().length} games`, customLists: `${S.config.customLists.length} lists` }, null, 2);
   return `<div class="panel"><h2>Folders</h2><div class="kv">
     <div>This page's folder</div><div>${esc(p.appFolder || S.handles.app.name)} ${S.samePlace === false ? '<span class="tag warn">this page is not in that folder</span>' : S.samePlace ? '<span class="tag ok">config saved here</span>' : ''} ${S.writable ? '' : '<span class="tag no">read-only</span>'}</div><div><button class="small" data-act="pickApp">Change…</button></div>
     <div>RetroBat / Batocera folder</div><div>${p.retrobatFolder ? esc(p.retrobatFolder) : '<span class="tag no">not found</span>'}</div><div><button class="small" data-act="pickRetro">Choose…</button></div>
     <div>ROMs folder</div><div>${p.romsFolder ? esc(p.romsFolder) + ` <span class="muted">(${S.folders.length} system folders)</span>` : '<span class="tag no">not found</span>'}</div><div></div>
-    <div>RGSX database folder</div><div>${p.rgsxFolder ? esc(p.rgsxFolder) : '<span class="tag no">not found</span>'} ${S.catalog ? `<span class="muted">read ${fmtDate(S.catalog.at)}</span>` : ''}</div><div><button class="small" data-act="pickRgsx">Choose…</button> ${S.dirs.rgsx ? '<button class="small" data-act="reloadCat">Reload catalogue</button>' : ''}</div>
+    <div>RGSX database folder</div><div>${p.rgsxFolder ? esc(p.rgsxFolder) : '<span class="tag no">not found</span>'} ${S.catalog ? `<span class="muted">read ${D(S.catalog.at)}</span>` : ''}</div><div><button class="small" data-act="pickRgsx">Choose…</button> ${S.dirs.rgsx ? '<button class="small" data-act="reloadCat">Reload catalogue</button>' : ''}</div>
   </div></div>
-  <div class="panel"><h2>Top lists</h2>
-    <p class="muted">The page ships with a copy of every list (made ${fmtDate(SNAPSHOT.fetched)}). "Update" downloads fresh copies from Wikidata and Wikipedia and stores them in <code>${CACHE_DIR}</code>.</p>
-    <div class="row"><button data-act="refreshAll">Update all lists for my systems</button><button data-act="clearLists">Use the bundled lists again</button></div>
-    <h3>Custom lists</h3><p class="muted">Paste or load a list of game titles (one per line, best first; for CSV the first column is used). Custom lists appear as a source on the Top N page.</p>
-    ${lists ? `<table><thead><tr><th>Name</th><th>System</th><th>Games</th><th></th></tr></thead><tbody>${lists}</tbody></table>` : ''}
-    <div class="row" style="margin-top:8px"><input type="text" id="clName" placeholder="List name, e.g. Retro Gamer Top 100" style="flex:1"><select id="clSystem"><option value="*">Any system</option>${Object.keys(SYSTEMS).map(k => `<option value="${k}">${esc(SYSTEMS[k].label)}</option>`).join('')}</select></div>
+  ${rgsxUpdatePanel()}`;
+}
+function rgsxUpdatePanel() {
+  const c = S.catalog, age = c && c.dbModified ? Math.floor((Date.now() - c.dbModified) / 864e5) : null;
+  return `<div class="panel" id="rgsxUpdate"><h2>Updating the RGSX catalogue</h2>
+    ${c ? `<p>${c.dbModified ? `RGSX last updated its database on ${D(c.dbModified)}` : 'The RGSX database was read'}${age != null ? ` (${age} day${age === 1 ? '' : 's'} ago)` : ''}. ${Object.values(c.counts).reduce((a, b) => a + b, 0).toLocaleString()} games${c.seq ? `, catalogue revision ${esc(c.seq)}` : ''}.</p>` : ''}
+    ${age != null && age > 14 ? '<div class="notice">The catalogue is more than two weeks old. Update it in RGSX (below).</div>' : ''}
+    <p class="muted">This page can't download the catalogue itself: the RGSX catalogue server only answers RGSX, not web pages. RGSX updates it for you:</p>
+    <ol><li>Start <b>RGSX</b>: in RetroBat it's under <b>Ports</b> (or <b>Windows</b> › <b>RGSX Retrobat</b>); on Batocera, under <b>Ports</b>. Each time it starts it shows "Synchronizing game catalog…" and downloads the changes.</li>
+      <li>To force a complete refresh, open the RGSX menu (Start button, or Esc on a keyboard) › <b>Games</b> › <b>Refresh game catalog</b>.</li>
+      <li>Close RGSX, come back here and press <b>Reload catalogue</b>.</li></ol>
+    ${S.dirs.rgsx ? '<div class="row"><button class="primary" data-act="reloadCat">Reload catalogue</button></div>' : ''}</div>`;
+}
+function settingsSources() {
+  const lists = S.config.customLists.filter(l => l.system === '*').map(l => `<tr><td translate="no">${esc(l.name)}</td><td>${l.items.length}</td><td class="right"><button class="small" data-dellist="${esc(l.id)}">Remove</button></td></tr>`).join('');
+  return `<div class="panel"><h2>Top list sources</h2>
+    <table><thead><tr><th>Source</th><th>What it ranks</th></tr></thead><tbody>${Object.entries(SOURCE_INFO).map(([k, v]) => `<tr><td><b>${esc(v.name)}</b>${v.group === 'api' ? `<br><span class="tag ${Vault.has(v.service) ? 'ok' : 'warn'}">${Vault.has(v.service) ? 'key saved' : 'needs API key'}</span>` : ''}</td><td class="muted">${esc(v.about)}</td></tr>`).join('')}</tbody></table>
+    <p class="muted">The page ships with a copy of every built-in list (made ${D(SNAPSHOT.fetched)}). Updating downloads fresh copies and keeps them in <code>${CACHE_DIR}</code>. Lists from websites are added per system: choose a system on the left.</p>
+    <div class="row"><button data-act="refreshAll">Update all built-in lists for my systems</button>${API_SOURCES.some(s => Vault.has(SOURCE_INFO[s].service)) ? '<button data-act="refreshApi">Update API lists for my systems</button>' : ''}<button data-act="clearLists">Use the bundled lists again</button></div></div>
+  <div class="panel"><h2>Lists for any system</h2><p class="muted">A list that mixes systems (for example a magazine's all-time top 100). Each system only shows the games it has. One title per line, best first; CSV uses the first column.</p>
+    ${lists ? `<table><thead><tr><th>Name</th><th>Games</th><th></th></tr></thead><tbody>${lists}</tbody></table>` : ''}
+    <div class="row" style="margin-top:8px"><input type="text" id="clName" placeholder="List name" style="flex:1"></div>
     <textarea id="clItems" placeholder="Super Mario Bros. 3&#10;The Legend of Zelda&#10;Mega Man 2"></textarea>
-    <div class="row"><button class="primary" data-act="addList">Add list</button><label class="muted">or load a file <input type="file" id="clFile" accept=".txt,.csv,.json"></label></div></div>
-  <div class="panel"><h2>itch.io data</h2>
-    <p class="muted">itch.io doesn't let other pages read its feeds, so the free-games list is bundled (${fmtDate(ITCH_BUNDLED.fetched)}). To refresh it: open <a href="https://itch.io" target="_blank" rel="noopener">itch.io</a>, open the browser console (F12 → Console), paste the refresh script and press Enter. It downloads <code>itch-free.json</code>; import that file here.</p>
-    <div class="row"><button data-act="copyItch">Copy refresh script</button><label>Import <input type="file" id="itchFile" accept=".json"></label>${S.itch ? `<span class="tag ok">Using refreshed data from ${fmtDate(S.itch.fetched)}</span><button class="small" data-act="dropItch">Use bundled data</button>` : ''}</div></div>
-  <div class="panel"><h2>General</h2><div class="row">
-    <label><input type="checkbox" id="optIntro" ${S.config.showGettingStarted ? 'checked' : ''}> Show the getting started page when this page opens</label>
-    <button data-act="intro">Open getting started</button><button data-act="forget">Forget folders</button></div>
-    <h3>Config file <code>${CONFIG_NAME}</code></h3><pre>${esc(cfg)}</pre></div>`;
+    <div class="row"><button class="primary" data-act="addList">Add list</button><label class="muted">or load a file <input type="file" id="clFile" accept=".txt,.csv,.json"></label></div></div>`;
+}
+function settingsKeys() {
+  const v = Vault.cfg();
+  const rows = Object.entries(SERVICES).map(([id, s]) => `<div class="panel"><h2>${esc(s.name)}</h2>
+    <p class="muted">${esc(s.help)} <a href="${s.link}" target="_blank" rel="noopener">Open ${esc(s.name)} ↗</a></p>
+    <p>Used by: ${API_SOURCES.filter(k => SOURCE_INFO[k].service === id).map(k => esc(SOURCE_INFO[k].name)).join(', ')}.</p>
+    <div class="row"><span class="tag ${Vault.has(id) ? 'ok' : ''}">${Vault.has(id) ? 'Saved, encrypted' : 'Not set'}</span>
+      <input type="password" id="key_${id}" placeholder="${esc(s.keyName)}" autocomplete="off" style="flex:1;min-width:220px">
+      <button class="primary" data-savekey="${id}">Save</button><button data-testkey="${id}" ${Vault.has(id) ? '' : 'disabled'}>Test</button><button data-delkey="${id}" ${Vault.has(id) ? '' : 'disabled'}>Remove</button></div></div>`).join('');
+  return `<div class="panel"><h2>API keys</h2>
+    <p>Some sources need a personal API key. Keys are encrypted (AES-256-GCM) before they're written to <code>${CONFIG_NAME}</code>, and are only decrypted in memory while the page is open.</p>
+    <div class="row"><label><input type="radio" name="vaultMode" value="device" ${v.mode !== 'passphrase' ? 'checked' : ''}> <b>This browser</b></label><span class="muted">The encryption key is kept by this browser and can't be exported. Nothing to type, but on another computer you enter the keys again.</span></div>
+    <div class="row" style="margin-top:6px"><label><input type="radio" name="vaultMode" value="passphrase" ${v.mode === 'passphrase' ? 'checked' : ''}> <b>Passphrase</b></label><span class="muted">The key is made from a passphrase you type once per visit. Works on any computer with the config file.</span></div>
+    ${v.mode === 'passphrase' ? `<p class="muted">Status: ${Vault.key ? 'unlocked for this visit' : 'locked'} ${Vault.key ? '' : '<button class="small" data-act="unlock">Unlock</button>'}</p>` : ''}
+    <p class="muted">Keys are sent only to their own service, as that service's API requires.</p></div>${rows}
+  <div class="panel"><h2>Services that can't be used here</h2><p class="muted">IGDB, MobyGames, TheGamesDB and Giant Bomb block requests from pages opened from disk, and ScreenScraper needs developer credentials. Their website lists can still be imported per system with the list grabber.</p></div>`;
+}
+function settingsItch() {
+  return `<div class="panel"><h2>itch.io data</h2>
+    <p class="muted">itch.io doesn't let other pages read its feeds, so the free-games list is bundled (${D(ITCH_BUNDLED.fetched)}). To refresh it: open <a href="https://itch.io" target="_blank" rel="noopener">itch.io</a>, open the browser console (F12 → Console), paste the refresh script and press Enter. It downloads <code>itch-free.json</code>; import that file here.</p>
+    <div class="row"><button data-act="copyItch">Copy refresh script</button><label>Import <input type="file" id="itchFile" accept=".json"></label>${S.itch ? `<span class="tag ok">Using refreshed data from ${D(S.itch.fetched)}</span><button class="small" data-act="dropItch">Use bundled data</button>` : ''}</div></div>`;
+}
+const RANK_LABEL = { votes: 'members\' votes', rating: 'ratings', players: 'players', popularity: 'popularity', editorial: 'editorial ranking', curated: 'unranked selection', database: 'database' };
+function settingsSystem(k) {
+  const sys = SYSTEMS[k]; if (!sys) return '<div class="panel">Unknown system.</div>';
+  const folders = foldersFor(k);
+  const srcRows = Object.keys(SOURCE_INFO).filter(s => s !== 'blend' && sourceAvailable(s, k)).map(s => {
+    const l = rawList(s, k), info = SOURCE_INFO[s], needs = info.group === 'api' && !Vault.has(info.service);
+    return `<tr><td>${esc(info.name)}</td><td>${l ? l.items.length : '–'}</td><td class="muted">${l ? (l.origin === 'live' ? 'updated ' : 'bundled ') + D(l.fetched) : needs ? 'needs API key' : 'not downloaded'}</td>
+      <td class="right">${needs ? '<button class="small" data-setpage="keys">Add key</button>' : `<button class="small" data-upd="${s}|${k}">Update</button>`}</td></tr>`;
+  }).join('');
+  const sites = siteListsFor(k).map(e => `<div class="card"><b translate="no"><a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.name)} ↗</a></b> <span class="tag">${esc(RANK_LABEL[e.rank] || e.rank || '')}</span>
+      ${e.note ? `<p>${esc(e.note)}</p>` : ''}<div style="margin-top:6px"><button class="small" data-webfill="${esc(JSON.stringify({ name: e.name, url: e.url }))}">Import this list…</button></div></div>`).join('');
+  const mine = S.config.customLists.filter(l => l.system === k).map(l => `<tr><td><b translate="no">${esc(l.name)}</b>${l.url ? `<br><a class="muted" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.url.replace(/^https?:\/\//, '').slice(0, 60))}</a>` : ''}</td><td>${l.items.length}</td><td class="muted">${D(l.added)}</td>
+      <td class="right">${l.url ? `<button class="small" data-webfill="${esc(JSON.stringify({ name: l.name, url: l.url, id: l.id }))}">Re-import</button> ` : ''}<button class="small" data-dellist="${esc(l.id)}">Remove</button></td></tr>`).join('');
+  const d = S.webDraft && S.webDraft.sys === k ? S.webDraft : { sys: k, name: '', url: '', items: [], how: '' };
+  const bm = 'javascript:' + encodeURIComponent(GRABBER_SCRIPT);
+  return `<div class="panel"><div class="row"><h2 style="margin:0" translate="no">${esc(sys.label)}</h2><span class="muted">${folders.length ? T('ROM folder: {f}', { f: folders.join(', ') }) : 'no ROM folder'}${S.catalog && S.catalog.counts[k] ? ' · ' + T('RGSX {n} games', { n: S.catalog.counts[k].toLocaleString() }) : ''}</span><div class="grow"></div>${folders.length ? `<button class="small" data-sys-top="${k}">Compare with top lists</button>` : ''}</div>
+    <h3>Built-in and API lists</h3><table><thead><tr><th>Source</th><th>Games</th><th>Copy</th><th></th></tr></thead><tbody>${srcRows}</tbody></table></div>
+  <div class="panel"><h2>Your website lists</h2>${mine ? `<table><thead><tr><th>List</th><th>Games</th><th>Added</th><th></th></tr></thead><tbody>${mine}</tbody></table>` : '<p class="muted">None yet. Import one from the sites below, or any page with a ranked list.</p>'}</div>
+  <div class="panel" id="webForm"><h2>Add a list from a website</h2>
+    <div class="row"><input type="text" id="webName" placeholder="List name, e.g. Lemon Amiga top games" value="${esc(d.name)}" style="flex:1;min-width:200px"><input type="text" id="webUrl" placeholder="https://…" value="${esc(d.url)}" style="flex:2;min-width:240px"></div>
+    <div class="row" style="margin-top:8px"><button data-act="webFetch">Try to read it directly</button>${d.url ? `<a href="${esc(d.url)}" target="_blank" rel="noopener">Open the page ↗</a>` : ''}</div>
+    <p class="muted">Most sites (including Lemon Amiga, Lemon64 and MobyGames) don't let other pages read them, and some check for bots. Use the list grabber on the page in your own browser instead:</p>
+    <ol class="muted" style="margin-top:0"><li>Drag <a class="tag warn" href="${esc(bm)}" data-bookmarklet title="Drag me to your bookmarks bar">Grab list for RGSX</a> to your bookmarks bar (once), or <button class="small" data-act="copyGrabber">copy the grabber script</button> to paste into the console (F12).</li>
+      <li>Open the list page. Optionally select the list with the mouse for exact results. Click the bookmark (or paste the script into the console).</li>
+      <li>It copies the list. Paste it below.</li></ol>
+    <textarea id="webPaste" placeholder="Paste the grabber result, or plain text with one title per line"></textarea>
+    <div class="row"><label class="muted">or load a saved page (Ctrl+S in the browser) <input type="file" id="webFile" accept=".html,.htm,.txt,.csv,.json"></label></div>
+    ${d.items.length ? `<h3>Preview: ${d.items.length} games <span class="muted" style="font-weight:400">(${esc(d.how)}; edit freely, best first)</span></h3><textarea id="webItems" style="min-height:200px">${esc(d.items.join('\n'))}</textarea>
+      <div class="row"><button class="primary" data-act="webSave">${d.id ? 'Update list' : T('Save list for {sys}', { sys: sys.label })}</button><button data-act="webClear">Discard</button></div>` : ''}</div>
+  ${sites ? `<div class="panel"><h2>${T('Websites with {sys} lists', { sys: sys.label })}</h2><div class="cards">${sites}</div></div>` : ''}`;
+}
+
+/* ------------------------------------------------------------------ help */
+function viewHelp() {
+  const sec = (id, title, html) => `<div class="panel" id="help-${id}"><h2>${title}</h2>${html}</div>`;
+  const toc = [['start', 'Getting started'], ['library', 'Library'], ['topn', 'Top lists'], ['rgsx', 'The RGSX catalogue'], ['sources', 'Top list sources'], ['web', 'Lists from websites'], ['keys', 'API keys and encryption'], ['free', 'Free games'], ['files', 'Files and privacy'], ['trouble', 'Troubleshooting']];
+  return `<div class="split"><div class="panel"><b>Help</b><div class="syslist" style="max-height:none">${toc.map(([id, t]) => `<div class="sysitem" data-helpgo="${id}"><span>${t}</span></div>`).join('')}</div></div><div>
+  ${sec('start', 'Getting started', `<ol>
+    <li>Put <code>rgsx-library-checker.html</code> in your RetroBat folder (for example <code>C:\\RetroBat</code>) or the Batocera <code>share</code> folder.</li>
+    <li>Open it in <b>Chrome</b> or <b>Edge</b>. Firefox and Safari can't open folders from a web page.</li>
+    <li>Click <b>Choose this page's folder…</b> and pick the folder the page is in. Allow <i>view and edit</i>.</li>
+    <li>The page finds <code>roms</code> and the RGSX database (<code>saves\\ports\\rgsx\\rgsx.sqlite3</code>) itself and scans your library. If it can't find them, choose them in <b>Settings › Folders</b>.</li></ol>
+    <p class="muted">Each time you open the page the browser may ask you to allow access again; click the button it shows. That's a browser safety rule.</p>`)}
+  ${sec('library', 'Library', `<p>Lists every ROM folder with the number of game files, and the RGSX catalogue size. Choose a system to see its games, using the names from <code>gamelist.xml</code> when you've scraped. The dropdown shows all systems, only empty ones, or only those with ROMs. <b>Rescan all</b> picks up new games.</p>`)}
+  ${sec('topn', 'Top lists', `<p>Pick a system, a source and a size (10 to 500). Each game shows <span class="tag ok">Installed</span> or <span class="tag no">Missing</span>; missing games that the RGSX catalogue has are marked <span class="tag warn">In RGSX catalogue</span>, so you can fetch them with RGSX. Choose <b>All systems</b> for a coverage table. Use ☆ for a wishlist, and <b>Export missing</b> for a CSV.</p>
+    <p>A game can be marked missing when its file is named very differently from the list title (for example US and Japanese names). Scraping your library with names in <code>gamelist.xml</code> improves matching a lot.</p>`)}
+  ${sec('rgsx', 'The RGSX catalogue', `<p>The page reads the game catalogue that RGSX keeps (<code>saves\\ports\\rgsx\\rgsx.sqlite3</code>) to show which missing games RGSX can download. It never changes it, and it can't download the catalogue itself: the catalogue server only answers RGSX.</p>
+    <ol><li>Start RGSX (RetroBat: <b>Ports</b> or <b>Windows</b> › <b>RGSX Retrobat</b>; Batocera: <b>Ports</b>). It updates the catalogue each time it starts.</li>
+    <li>For a complete refresh: RGSX menu (Start, or Esc) › <b>Games</b> › <b>Refresh game catalog</b>.</li>
+    <li>Close RGSX, then press <b>Reload catalogue</b> in <b>Settings › Folders</b>, which also shows how old the catalogue is.</li></ol>`)}
+  ${sec('sources', 'Top list sources', `<table><tbody>${Object.values(SOURCE_INFO).map(v => `<tr><td><b>${esc(v.name)}</b></td><td class="muted">${esc(v.about)}</td></tr>`).join('')}</tbody></table>
+    <p class="muted">Built-in lists are bundled, so they work offline. <b>Update</b> (Top lists, or Settings › a system) fetches fresh copies. Some sources only cover some systems; the source menu shows how many games each has for the chosen system.</p>`)}
+  ${sec('web', 'Lists from websites', `<p>Community sites such as Lemon Amiga, Lemon64, Spectrum Computing, Atarimania, Generation MSX and MobyGames keep their own top lists. To use one:</p>
+    <ol><li>Go to <b>Settings</b> and choose the system on the left. Its page suggests sites with lists for it.</li>
+    <li>Click <b>Import this list…</b> (or type a name and the address of any page).</li>
+    <li>Try <b>Try to read it directly</b>. Most sites block this, so use the <b>list grabber</b>: drag <i>Grab list for RGSX</i> to the bookmarks bar, open the list page, click the bookmark. If the guess is wrong, select the list with the mouse and click it again.</li>
+    <li>Paste the result into the box, check the preview, and save. The list appears as a source on the Top lists page for that system. <b>Re-import</b> refreshes it later.</li></ol>
+    <p class="muted">You can also save the page with Ctrl+S and load the .html file, or paste plain text with one title per line.</p>`)}
+  ${sec('keys', 'API keys and encryption', `<p>RetroAchievements (most played) and RAWG (user rating, Metacritic, popularity) need free personal API keys. Add them in <b>Settings › API keys</b>.</p>
+    <ul><li>Keys are encrypted with AES-256-GCM before they're saved in the config file, and decrypted only in memory.</li>
+    <li><b>This browser</b> mode keeps the encryption key inside the browser, where it can't be exported: anyone who copies the config file can't read the keys.</li>
+    <li><b>Passphrase</b> mode derives the key from your passphrase (PBKDF2, 310,000 rounds). Nothing that can decrypt is stored; you unlock once per visit, on any computer.</li>
+    <li>Each key is only sent to its own service, as part of that service's API requests.</li></ul>
+    <p class="muted">The RetroAchievements list checks player counts for the games in the built-in lists, one request at a time, so it takes a few minutes per system. Results are cached.</p>`)}
+  ${sec('free', 'Free games', `<p>Top-rated free games from itch.io by genre: retro homebrew ROMs for your systems, or PC and browser games. Open a game's page to download it, then put the ROM in the system's folder (shown on the page) and update your game lists in RetroBat. Games you already have are marked Installed. To refresh the data, see <b>Settings › itch.io data</b>.</p>`)}
+  ${sec('files', 'Files and privacy', `<ul><li><code>${CONFIG_NAME}</code>: your settings, website lists, wishlist and encrypted API keys.</li><li><code>${CACHE_DIR}</code>: scan results, downloaded lists and the RGSX catalogue index. Safe to delete.</li></ul>
+    <p class="muted">The page never changes your ROMs or the RGSX database. Internet requests go only to Wikidata, Wikipedia and Wikimedia (lists), and to RetroAchievements and RAWG if you add keys.</p>`)}
+  ${sec('trouble', 'Troubleshooting', `<ul><li><b>"This browser can't open folders"</b>: use Chrome or Edge.</li>
+    <li><b>RGSX database can't be read</b>: close RGSX and press <b>Reload catalogue</b> in Settings › Folders.</li>
+    <li><b>Missing games RGSX should have</b>: update the RGSX catalogue (start RGSX, or its menu › Games › Refresh game catalog), then Settings › Folders › <b>Reload catalogue</b>.</li>
+    <li><b>Counts look wrong after adding games</b>: Library › <b>Rescan all</b>.</li>
+    <li><b>The grabber found the wrong list</b>: select just the list with the mouse, then click the bookmark again.</li>
+    <li><b>An API list fails</b>: check the key with <b>Test</b> in Settings › API keys. RetroAchievements limits how fast you can ask; wait and try again.</li>
+    <li><b>Start again</b>: Settings › General › <b>Forget folders</b>, or delete the config file and cache folder.</li></ul>`)}
+  </div></div>`;
 }
 
 /* ------------------------------------------------------------------ getting started */
+
 function showIntro() {
   const pl = pageLocation(); const o = $('#intro');
   o.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="introTitle">
@@ -686,12 +1039,12 @@ function showIntro() {
       <li><b>Put this file in your RetroBat folder</b> (for example <code>C:\\RetroBat</code>), or in the Batocera <code>share</code> folder. ${pl.folder ? `It's currently in <code>${esc(pl.folder)}</code>.` : ''}</li>
       <li><b>Open it in Chrome or Edge</b> and choose <b>${pl.folder ? 'this page\'s folder' : 'the folder that holds this page'}</b>. Allow the browser to <i>view and edit</i> files: the page only writes its own <code>${CONFIG_NAME}</code> and a <code>${CACHE_DIR}</code> folder.</li>
       <li>The <code>roms</code> folder and the RGSX database (<code>saves\\ports\\rgsx\\rgsx.sqlite3</code>) are found automatically. If they're somewhere else, the page asks you to choose them, or use <b>Settings</b>.</li>
-      <li>Use <b>Library</b> to browse installed games, <b>Top N</b> to compare a system with a top list from your chosen source, and <b>Free games</b> for top free homebrew and PC games by genre.</li>
+      <li>Use <b>Library</b> to browse installed games, <b>Top lists</b> to compare a system with a top list from your chosen source, and <b>Free games</b> for top free homebrew and PC games by genre.</li>
     </ol>
     <p class="muted">Each time you open the page, the browser may ask you to allow access again; that's a browser safety rule. Nothing is uploaded: the only internet requests are list updates from Wikidata and Wikipedia when you ask for them.</p>
     <div class="foot"><label><input type="checkbox" id="introHide" ${S.config.showGettingStarted && !ls.get('rlc.hideIntro') ? '' : 'checked'}> Don't show this again</label>
       <div class="row">${!S.handles.app && fsSupported ? `<button class="primary" data-act="introPick">Choose this page's folder…</button>` : ''}<button ${S.handles.app ? 'class="primary"' : ''} data-act="introClose">Close</button></div></div></div>`;
-  o.classList.remove('hidden');
+  o.classList.remove('hidden'); translateDom(o);
 }
 function closeIntro() {
   const hide = $('#introHide')?.checked;
@@ -715,6 +1068,24 @@ function parseListText(text, fileName = '') {
   });
   return items.filter(Boolean).filter((t, i, a) => a.indexOf(t) === i);
 }
+function parseWebInput(text, fileName = '', pageUrl = '') {
+  // Grabber JSON, a saved HTML page, or plain text.
+  const t = String(text || '').trim(); if (!t) return null;
+  if (t.startsWith('{')) { try { const j = JSON.parse(t); if (Array.isArray(j.items)) return { items: j.items, how: 'list grabber: ' + (j.how || ''), name: j.name, url: j.url }; } catch { } }
+  if (/\.html?$/i.test(fileName) || /^<!doctype html|<html[\s>]/i.test(t)) {
+    const doc = new DOMParser().parseFromString(t, 'text/html');
+    const base = doc.createElement('base'); base.href = pageUrl || (doc.querySelector('link[rel=canonical]') || {}).href || 'https://example.invalid/'; doc.head.prepend(base);
+    const r = rlcExtractList(doc, ''); return { items: r.items, how: 'saved page, ' + r.how, name: (doc.title || '').trim() };
+  }
+  return { items: parseListText(t, fileName), how: 'pasted text' };
+}
+function setDraft(patch) {
+  const k = S.setPage.slice(4);
+  const cur = S.webDraft && S.webDraft.sys === k ? S.webDraft : { sys: k, name: '', url: '', items: [], how: '' };
+  const name = $('#webName') ? $('#webName').value : cur.name, url = $('#webUrl') ? $('#webUrl').value : cur.url;
+  S.webDraft = { ...cur, name, url, ...patch };
+  render(); const f = document.getElementById('webForm'); if (f) f.scrollIntoView({ block: 'start' });
+}
 const actions = {
   pickApp, pickRetro, pickRgsx, reconnect,
   intro: () => { S.introDismissed = false; showIntro(); },
@@ -727,10 +1098,10 @@ const actions = {
   reloadCat: () => loadCatalog(true),
   refreshLists: () => {
     const c = S.config.topN; const sys = c.system && c.system !== '*' ? [c.system] : topSystems();
-    const src = c.source === 'blend' ? ['wikidata', 'sales', 'critics'] : [c.source];
-    refreshLists(sys.filter(k => src.some(s => s === 'wikidata' ? SYSTEMS[k].wiki : s === 'sales' ? SYSTEMS[k].sales : SYSTEMS[k].best)), src);
+    refreshLists(sys, c.source === 'blend' ? BUILTIN : [c.source]);
   },
-  refreshAll: () => refreshLists(topSystems(), ['wikidata', 'sales', 'critics']),
+  refreshAll: () => refreshLists(topSystems(), BUILTIN),
+  refreshApi: () => refreshLists(topSystems(), API_SOURCES.filter(s => Vault.has(SOURCE_INFO[s].service))),
   clearLists: async () => { S.lists = {}; await cacheWrite('toplists.json', {}); render(); },
   exportMissing: () => {
     const c = S.config.topN; const r = compareSystem(c.system, c.source, +c.size); if (!r) return;
@@ -741,17 +1112,59 @@ const actions = {
   addList: () => {
     const name = $('#clName').value.trim() || 'My list'; const items = parseListText($('#clItems').value);
     if (!items.length) return toast('Paste at least one game title.', 'warn');
-    S.config.customLists.push({ id: Date.now().toString(36), name, system: $('#clSystem').value, items, added: new Date().toISOString() });
-    saveConfig(); toast(`Added "${name}" with ${items.length} games.`);
+    S.config.customLists.push({ id: Date.now().toString(36), name, system: '*', items, added: new Date().toISOString() });
+    saveConfig(); toastT('Added "{name}" with {n} games.', { name, n: items.length });
   },
   copyItch: async () => { try { await navigator.clipboard.writeText(ITCH_SCRIPT); toast('Refresh script copied. Paste it into the console on itch.io.'); } catch { download('itch-refresh.js', ITCH_SCRIPT, 'text/javascript'); } },
+  copyGrabber: async () => { try { await navigator.clipboard.writeText(GRABBER_SCRIPT); toast('Grabber copied. On the list page press F12, open Console, paste and press Enter.'); } catch { download('list-grabber.js', GRABBER_SCRIPT, 'text/javascript'); } },
   dropItch: async () => { S.itch = null; await cacheWrite('itch-free.json', null); render(); },
   forget: async () => { for (const k of ['app', 'retro', 'rgsx']) await idb.set(k, undefined); S.handles = { app: null, retro: null, rgsx: null }; S.dirs = { roms: null, rgsx: null }; S.scan = {}; S.catalog = null; S.folders = []; render(); },
+  toggleAllSys: () => { S.showAllSys = !S.showAllSys; render(); },
+  unlock: async () => { await Vault.unlock(true); render(); },
+  webFetch: async () => {
+    const url = $('#webUrl').value.trim(); if (!/^https?:\/\//i.test(url)) return toast('Enter the page address, starting with https://', 'warn');
+    S.busy = 'Reading ' + url + '…'; renderStatus();
+    try {
+      const r = await fetch(url); if (!r.ok) throw new Error('HTTP ' + r.status);
+      const res = parseWebInput(await r.text(), 'page.html', url);
+      if (!res.items.length) throw new Error('no list found on the page');
+      setDraft({ items: res.items, how: res.how.replace('saved page', 'read directly'), name: $('#webName').value || res.name || '' });
+    } catch (e) { toastT('The site didn\'t allow a direct read ({error}). Use the list grabber on the page instead.', { error: e.message }, 'warn'); }
+    finally { S.busy = ''; renderStatus(); }
+  },
+  webSave: () => {
+    const d = S.webDraft; const items = parseListText($('#webItems').value);
+    const name = ($('#webName').value || '').trim() || 'Website list', url = ($('#webUrl').value || '').trim();
+    if (!items.length) return toast('The list is empty.', 'warn');
+    const now = new Date().toISOString();
+    const old = d.id && S.config.customLists.find(l => l.id === d.id);
+    if (old) Object.assign(old, { name, url, items, added: now });
+    else S.config.customLists.push({ id: Date.now().toString(36), name, system: d.sys, url, items, added: now });
+    S.webDraft = null; saveConfig(); toastT('Saved "{name}" with {n} games. It\'s now a source on the Top lists page.', { name, n: items.length }); render();
+  },
+  webClear: () => { S.webDraft = null; render(); },
 };
-document.addEventListener('click', e => {
-  const t = e.target.closest('[data-act],[data-sel],[data-sys],[data-star],[data-dellist],[data-tab]'); if (!t) return;
-  if (t.dataset.tab) { S.tab = t.dataset.tab; render(); return; }
+async function saveKey(id) {
+  const v = ($('#key_' + id).value || '').trim(); if (!v) return toast('Paste the key first.', 'warn');
+  S.busy = 'Checking the ' + SERVICES[id].name + ' key…'; renderStatus();
+  try { await SERVICES[id].test(v); } catch (e) { S.busy = ''; renderStatus(); const keep = await dialog({ title: 'Key check failed', body: `${e.message}. Save it anyway?`, ok: 'Save anyway' }); if (!keep) return; }
+  S.busy = '';
+  if (await Vault.set(id, v)) toastT('{svc} key saved (encrypted).', { svc: SERVICES[id].name });
+  render();
+}
+document.addEventListener('click', async e => {
+  const t = e.target.closest('[data-act],[data-sel],[data-sys],[data-star],[data-dellist],[data-tab],[data-setpage],[data-upd],[data-webfill],[data-savekey],[data-testkey],[data-delkey],[data-helpgo],[data-sys-top],[data-bookmarklet]'); if (!t) return;
+  if (t.dataset.bookmarklet !== undefined) { e.preventDefault(); toast('Drag this link to your bookmarks bar, then click it on a page with a list.'); return; }
+  if (t.dataset.tab) { S.tab = t.dataset.tab; render(); window.scrollTo(0, 0); return; }
   if (t.dataset.act) { actions[t.dataset.act]?.(); return; }
+  if (t.dataset.setpage) { S.setPage = t.dataset.setpage; S.tab = 'settings'; render(); window.scrollTo(0, 0); return; }
+  if (t.dataset.helpgo) { document.getElementById('help-' + t.dataset.helpgo)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+  if (t.dataset.sysTop) { S.config.topN.system = t.dataset.sysTop; S.tab = 'topn'; saveConfig(); render(); return; }
+  if (t.dataset.upd) { const [src, k] = t.dataset.upd.split('|'); await refreshLists([k], [src]); return; }
+  if (t.dataset.webfill) { const v = JSON.parse(t.dataset.webfill); S.webDraft = { sys: S.setPage.slice(4), name: v.name, url: v.url, id: v.id, items: [], how: '' }; render(); document.getElementById('webForm')?.scrollIntoView({ block: 'start' }); return; }
+  if (t.dataset.savekey) return saveKey(t.dataset.savekey);
+  if (t.dataset.testkey) { const id = t.dataset.testkey; const k = await Vault.get(id); if (!k) return; try { await SERVICES[id].test(k); toastT('{svc} accepted the key.', { svc: SERVICES[id].name }); } catch (err) { toast(err.message, 'err'); } return; }
+  if (t.dataset.delkey) { await Vault.set(t.dataset.delkey, null); toast('Key removed.'); render(); return; }
   if (t.dataset.sel) { S.sel = t.dataset.sel; S.libFilter = ''; S.libLimit = 500; render(); return; }
   if (t.dataset.sys) { S.config.topN.system = t.dataset.sys; saveConfig(); render(); return; }
   if (t.dataset.star) {
@@ -771,26 +1184,49 @@ document.addEventListener('change', async e => {
   else if (t.id === 'frSystem') { c.free.system = t.value; c.free.genre = 'all'; }
   else if (t.id === 'frGenre') c.free.genre = t.value;
   else if (t.id === 'pcGenre') c.free.pcGenre = t.value;
+  else if (t.name === 'vaultMode') { await Vault.setMode(t.value); render(); return; }
   else if (t.id === 'optIntro') { c.showGettingStarted = t.checked; ls.set('rlc.hideIntro', t.checked ? null : '1'); }
   else if (t.id === 'clFile' && t.files[0]) { const f = t.files[0]; $('#clItems').value = parseListText(await f.text(), f.name).join('\n'); if (!$('#clName').value) $('#clName').value = f.name.replace(/\.\w+$/, ''); return; }
+  else if (t.id === 'webFile' && t.files[0]) {
+    const f = t.files[0]; const res = parseWebInput(await f.text(), f.name, $('#webUrl').value.trim());
+    if (!res || !res.items.length) return toast('No list found in that file. Try the grabber with the list selected.', 'warn');
+    return setDraft({ items: res.items, how: res.how, name: $('#webName').value || res.name || '' });
+  }
   else if (t.id === 'itchFile' && t.files[0]) {
-    try { const j = JSON.parse(await t.files[0].text()); if (!j.games || !j.sys || !j.pc) throw new Error('not an itch-free.json file'); S.itch = j; await cacheWrite('itch-free.json', j); toast(`Imported itch.io data from ${fmtDate(j.fetched)}.`); }
-    catch (err) { toast('Import failed: ' + err.message, 'err'); }
+    try { const j = JSON.parse(await t.files[0].text()); if (!j.games || !j.sys || !j.pc) throw new Error('not an itch-free.json file'); S.itch = j; await cacheWrite('itch-free.json', j); toastT('Imported itch.io data from {date}.', { date: fmtDate(j.fetched) }); }
+    catch (err) { toastT('Import failed: {error}', { error: err.message }, 'err'); }
   } else return;
   saveConfig(); render();
 });
+document.addEventListener('paste', e => {
+  if (e.target.id !== 'webPaste') return;
+  setTimeout(() => {
+    const res = parseWebInput(e.target.value); if (!res || !res.items.length) return toast('No titles found in what you pasted.', 'warn');
+    setDraft({ items: res.items, how: res.how, name: $('#webName').value || res.name || '', url: $('#webUrl').value || res.url || '' });
+  }, 0);
+});
 let filterTimer = null;
 document.addEventListener('input', e => {
-  if (e.target.id !== 'libFilter' && e.target.id !== 'sysFilter') return;
+  if (!['libFilter', 'sysFilter', 'setSysFilter'].includes(e.target.id)) return;
   const id = e.target.id; S[id] = e.target.value; S.libLimit = 500;
   clearTimeout(filterTimer); filterTimer = setTimeout(() => { render(); const el = document.getElementById(id); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 200);
 });
-$('#helpBtn').addEventListener('click', () => { S.introDismissed = false; showIntro(); });
 $('#intro').addEventListener('click', e => { if (e.target.id === 'intro') closeIntro(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#intro').classList.contains('hidden')) closeIntro(); });
 
+/* ------------------------------------------------------------------ language */
+function setLang(l, save = true) {
+  if (!I18N_LANGS[l]) l = 'en';
+  LANG = l; document.documentElement.lang = l; ls.set('rlc.lang', l);
+  document.querySelectorAll('[data-lang]').forEach(b => { b.classList.toggle('on', b.dataset.lang === l); b.setAttribute('aria-pressed', b.dataset.lang === l); });
+  if (save) { S.config.lang = l; saveConfig(); }
+  render(); const o = $('#intro'); if (!o.classList.contains('hidden')) translateDom(o);
+}
+document.querySelectorAll('[data-lang]').forEach(b => b.addEventListener('click', () => setLang(b.dataset.lang)));
+
 /* ------------------------------------------------------------------ start */
 (async function start() {
+  setLang(ls.get('rlc.lang') || (navigator.language || 'en').slice(0, 2), false);
   if (ls.get('rlc.hideIntro')) S.config.showGettingStarted = false;
   if (fsSupported) {
     S.handles.app = (await idb.get('app')) || null;
