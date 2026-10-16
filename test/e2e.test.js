@@ -4,7 +4,7 @@ const { chromium } = require('playwright');
 const http = require('http'), fs = require('fs'), path = require('path');
 const dist = path.resolve(__dirname, '../dist'), fx = path.join(__dirname, 'fixtures');
 const srv = http.createServer((q, r) => { const f = path.join(dist, decodeURIComponent(q.url.split('?')[0])); fs.existsSync(f) && fs.statSync(f).isFile() ? (r.writeHead(200, { 'Content-Type': f.endsWith('.html') ? 'text/html' : 'application/octet-stream' }), r.end(fs.readFileSync(f))) : (r.writeHead(404), r.end()); }).listen(8765);
-let check0 = '';
+let check0 = '', introChecks = [], introSteps = '', introOk = '';
 (async () => {
   const b = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {});
   const p = await b.newPage({ viewport: { width: 1280, height: 900 } }); const errors = [];
@@ -32,6 +32,13 @@ let check0 = '';
   await shot('1-getting-started');
   await p.check('#introHide'); await p.click('[data-act=introPick]');
   await p.waitForFunction(() => RLC.dirs.roms && !RLC.scanning && RLC.catalog, null, { timeout: 20000 });
+  await p.waitForFunction(() => RLC.catalog && !RLC.scanning && /Needs attention/.test(document.querySelector('#introBody').textContent));
+  introChecks = await p.$$eval('#introBody tr', r => r.map(x => x.textContent.replace(/\s+/g, ' ').trim()));
+  introSteps = await p.textContent('#introBody');
+  // With every check passing, only the first instruction and "Everything is set up" remain.
+  introOk = await p.evaluate(() => { const keep = setupChecks; setupChecks = () => [{ status: 'ok', title: 'Browser', detail: '' }]; const h = introBody(); setupChecks = keep; return h; });
+  await shot('1b-getting-started-checks');
+  await p.click('#intro [data-act=introClose]');
   check0 = await p.textContent('#main'); await p.click('nav [data-tab=library]'); await p.waitForTimeout(300); await shot('2-library');
   const lib = await p.textContent('#main');
   await p.evaluate(async () => { const r = await navigator.storage.getDirectory(); await (await r.getDirectoryHandle('roms')).getDirectoryHandle('n64', { create: true }); });
@@ -51,8 +58,8 @@ let check0 = '';
   // Reload: getting started must stay hidden, config must be re-read.
   await p.reload(); await p.waitForTimeout(1200);
   const introAfter = await p.isVisible('#intro .modal');
-  const result = { firstRunCheck: check0.includes('Setup check'), showEmpty, showRoms, showAll, libraryShow: cfg.library, errors, libHasNes: lib.includes('Nintendo Entertainment System'), nesInstalled: nesRows, cfgTopN: cfg.topN, showGettingStarted: cfg.showGettingStarted, paths: cfg.paths, cache, introAfterReload: introAfter, catalog: await p.evaluate(() => RLC.catalog && RLC.catalog.counts) };
+  const result = { introChecks, introStepsShown: /How to set it up/.test(introSteps), introOk: /Everything is set up/.test(introOk) && !/How to set it up/.test(introOk) && /Put this file/.test(introOk), firstRunCheck: check0.includes('Setup check'), showEmpty, showRoms, showAll, libraryShow: cfg.library, errors, libHasNes: lib.includes('Nintendo Entertainment System'), nesInstalled: nesRows, cfgTopN: cfg.topN, showGettingStarted: cfg.showGettingStarted, paths: cfg.paths, cache, introAfterReload: introAfter, catalog: await p.evaluate(() => RLC.catalog && RLC.catalog.counts) };
   console.log(JSON.stringify(result, null, 1));
   await b.close(); srv.close();
-  if (!result.firstRunCheck || showEmpty.join() !== 'n64' || showRoms.includes('n64') || showAll.length !== showRoms.length + 1 || errors.length || introAfter || cfg.showGettingStarted !== false || !nesRows.length) process.exit(1);
+  if (!result.firstRunCheck || !result.introStepsShown || !result.introOk || introChecks.length < 2 || !introChecks.some(t => /Installation.*RetroBat|Installation.*roms folder/.test(t)) || showEmpty.join() !== 'n64' || showRoms.includes('n64') || showAll.length !== showRoms.length + 1 || errors.length || introAfter || cfg.showGettingStarted !== false || !nesRows.length) process.exit(1);
 })().catch(e => { console.error(e); srv.close(); process.exit(1); });

@@ -36,6 +36,7 @@ const srv = http.createServer((q, r) => { const f = path.join(dist, decodeURICom
   await p.evaluate(() => { __html(`<div>${['nes'].map(() => '').join('')}</div>`); RLC.needsReconnect = true; RLC.handles.app = { name: 'X' }; render(); __harvest(); RLC.needsReconnect = false; RLC.handles.app = null; render(); });
   await p.click('#intro [data-act=introPick]');
   await p.waitForFunction(() => RLC.dirs.roms && !RLC.scanning && RLC.catalog, null, { timeout: 20000 });
+  await H(); await p.click('#intro [data-act=introClose]');
   await H(); await p.click('nav [data-tab=library]');
   for (const v of ['empty', 'roms', 'all']) { await p.selectOption('#sysShow', v); await H(); }
   await p.click('[data-sel=nes]'); await H(); await p.click('[data-sel=n64]'); await H();
