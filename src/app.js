@@ -752,6 +752,7 @@ function render() {
   else if (S.needsReconnect) body = `<div class="panel"><h2>Allow access again</h2><p>Your browser needs you to confirm folder access each time this page is opened. Last folder: <b>${esc(S.handles.app.name)}</b>.</p><div class="row"><button class="primary" data-act="reconnect">${T('Allow access to {folder}', { folder: S.handles.app.name })}</button><button data-act="pickApp">Choose a different folder</button></div></div>`;
   else body = ({ library: viewLibrary, topn: viewTopN, free: viewFree, settings: viewSettings, help: viewHelp })[S.tab]();
   m.innerHTML = browserWarning() + notices + body;
+  refreshIntroChecks();
   translateDom(m); translateDom(document.querySelector('header'));
   if (S.config.showGettingStarted && !ls.get('rlc.hideIntro') && !S.introDismissed && $('#intro').classList.contains('hidden')) showIntro();
 }
@@ -764,6 +765,7 @@ function renderStatus() {
   }
   if (S.busy) chips.unshift(`<span class="chip warn">${esc(S.busy)}</span>`);
   $('#status').innerHTML = chips.join(''); translateDom($('#status'));
+  refreshIntroChecks();
   $('#ver').textContent = 'v' + APP_VERSION;
 }
 function connectPanel() {
@@ -984,18 +986,20 @@ function setupChecks() {
   else if (!S.catalog) add('warn', 'RGSX database', 'Found, not read yet.', 'Press Reload catalogue in Settings › Folders. Close RGSX first if it is running.');
   else {
     const age = S.catalog.dbModified ? Math.floor((Date.now() - S.catalog.dbModified) / 864e5) : null;
-    add(age != null && age > 14 ? 'warn' : 'ok', 'RGSX database', `${Object.values(S.catalog.counts).reduce((a, b) => a + b, 0).toLocaleString()} games` + (age != null ? `, updated ${age} days ago` : ''), age != null && age > 14 ? 'Start RGSX to update its catalogue, then press Reload catalogue.' : '');
+    add(age != null && age > 14 ? 'warn' : 'ok', 'RGSX database', `${Object.values(S.catalog.counts).reduce((a, b) => a + b, 0).toLocaleString()} games` + (age == null ? '' : age === 0 ? ', updated today' : age === 1 ? ', updated yesterday' : `, updated ${age} days ago`), age != null && age > 14 ? 'Start RGSX to update its catalogue, then press Reload catalogue.' : '');
   }
   if (t === 'batocera' || /^\\\\/.test(S.config.paths.appFolder || '')) add('info', 'Network share', 'The library is read over the network, so scans are slower than on a local disk.', 'The first scan can take a few minutes on Wi-Fi; after that the page uses its cache. Use Rescan when you add games.');
   return c;
 }
-function settingsCheck() {
+function checksTable() {
   const icon = { ok: '✓', warn: '!', err: '✕', info: 'i' }, cls = { ok: 'ok', warn: 'warn', err: 'no', info: '' };
-  const rows = setupChecks().map(x => `<tr><td><span class="tag ${cls[x.status]}" translate="no">${icon[x.status]}</span></td><td><b>${esc(x.title)}</b></td><td${x.title === 'Browser' && ENV.ok ? ' translate="no"' : ''}>${esc(x.detail)}${x.fix ? `<br><small class="muted">${esc(x.fix)}</small>` : ''}</td></tr>`).join('');
+  return '<table><tbody>' + setupChecks().map(x => `<tr><td><span class="tag ${cls[x.status]}" translate="no">${icon[x.status]}</span></td><td><b>${esc(x.title)}</b></td><td${x.title === 'Browser' && ENV.ok ? ' translate="no"' : ''}>${esc(x.detail)}${x.fix ? `<br><small class="muted">${esc(x.fix)}</small>` : ''}</td></tr>`).join('') + '</tbody></table>';
+}
+function settingsCheck() {
   return `<div class="panel"><div class="row"><h2 style="margin:0">Setup check</h2><div class="grow"></div><button class="small" data-act="recheck">Check again</button></div>
     <p class="muted">Works for RetroBat on Windows and for a Batocera share opened from Windows, macOS or Linux.</p>
     ${!S.firstRunCheck ? '' : '<div class="notice info">This check runs when you first connect a folder. You can come back to it any time from Settings › Setup check.</div>'}
-    <table><tbody>${rows}</tbody></table></div>`;
+    ${checksTable()}</div>`;
 }
 function settingsGeneral() {
   const cfg = JSON.stringify({ ...S.config, wishlist: `${Object.values(S.config.wishlist).flat().length} games`, customLists: `${S.config.customLists.length} lists`, vault: S.config.vault ? { mode: S.config.vault.mode, items: Object.keys(S.config.vault.items || {}).map(k => k + ' (encrypted)') } : undefined }, null, 2);
@@ -1153,20 +1157,47 @@ function viewHelp() {
 /* ------------------------------------------------------------------ getting started */
 
 function showIntro() {
-  const pl = pageLocation(); const o = $('#intro');
+  const o = $('#intro');
   o.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="introTitle">
     <h2 id="introTitle">Getting started</h2>${browserWarning()}
-    <p class="muted">RGSX Library Checker lists the ROMs you have installed, checks each system against Top 10–500 lists, and suggests top free games from itch.io. It reads the game catalogue that <a href="https://github.com/RetroGameSets/RGSX" target="_blank" rel="noopener">RGSX</a> keeps, so you can see which missing games RGSX can fetch for you.</p>
-    <ol>
-      <li><b>Put this file in your RetroBat folder</b> (for example <code>${ENV.os === 'Windows' || !ENV.os ? 'C:\\RetroBat' : ENV.os === 'macOS' ? 'smb://batocera/share' : '/mnt/batocera/share'}</code>), or in the Batocera <code>share</code> folder (on Windows: <code>\\\\BATOCERA\\share</code>; see Help › Using it with Batocera). ${pl.folder ? `It's currently in <code>${esc(pl.folder)}</code>.` : ''}</li>
+    <div id="introBody">${introBody()}</div>
+    <div class="foot"><label><input type="checkbox" id="introHide" ${S.config.showGettingStarted && !ls.get('rlc.hideIntro') ? '' : 'checked'}> Don't show this again</label>
+      <div class="row" id="introButtons">${introButtons()}</div></div></div>`;
+  o.classList.remove('hidden'); translateDom(o);
+}
+/* The getting started page shows one instruction and the folder button. The other steps and the check results
+   only appear when a check finds a problem; otherwise it says everything is set up. */
+function introBody() {
+  const pl = pageLocation();
+  const step1 = ENV.os === 'macOS' || ENV.os === 'Linux'
+    ? `<b>Put this file in your Batocera share folder</b> (open it over the network: <code>smb://batocera.local/share</code>; see Help › Using it with Batocera), or anywhere on your computer.`
+    : `<b>Put this file in your RetroBat folder</b> (for example <code>C:\\RetroBat</code>), or in the Batocera <code>share</code> folder (on Windows: <code>\\\\BATOCERA\\share</code>; see Help › Using it with Batocera).`;
+  let html = `<p>${step1} ${pl.folder ? `It's currently in <code>${esc(pl.folder)}</code>.` : ''}</p>`;
+  if (!S.handles.app || S.needsReconnect) return html;
+  const checks = setupChecks(), busy = S.scanning || /RGSX/.test(S.busy);
+  const problems = checks.filter(x => x.status === 'err' || x.status === 'warn');
+  if (busy) html += `<p class="muted">${S.scanning ? 'Scanning your library…' : 'Reading the RGSX database…'}</p>`;
+  if (problems.length) {
+    const icon = { warn: '!', err: '✕' }, cls = { warn: 'warn', err: 'no' };
+    html += `<h3>Needs attention</h3><table><tbody>${problems.map(x => `<tr><td><span class="tag ${cls[x.status]}" translate="no">${icon[x.status]}</span></td><td><b>${esc(x.title)}</b></td><td>${esc(x.detail)}${x.fix ? `<br><small class="muted">${esc(x.fix)}</small>` : ''}</td></tr>`).join('')}</tbody></table>
+      <h3>How to set it up</h3><ol>
       <li><b>Open it in Chrome or Edge</b> and choose <b>${pl.folder ? 'this page\'s folder' : 'the folder that holds this page'}</b>. Allow the browser to <i>view and edit</i> files: the page only writes its own <code>${CONFIG_NAME}</code> and a <code>${CACHE_DIR}</code> folder.</li>
       <li>The <code>roms</code> folder and the RGSX database (<code>saves\\ports\\rgsx\\rgsx.sqlite3</code>) are found automatically. If they're somewhere else, the page asks you to choose them, or use <b>Settings</b>.</li>
-      <li>Use <b>Library</b> to browse installed games, <b>Top lists</b> to compare a system with a top list from your chosen source, and <b>Free games</b> for top free homebrew and PC games by genre.</li>
-    </ol>
-    <p class="muted">Each time you open the page, the browser may ask you to allow access again; that's a browser safety rule. Nothing is uploaded: the only internet requests are list updates from Wikidata and Wikipedia when you ask for them.</p>
-    <div class="foot"><label><input type="checkbox" id="introHide" ${S.config.showGettingStarted && !ls.get('rlc.hideIntro') ? '' : 'checked'}> Don't show this again</label>
-      <div class="row">${!S.handles.app && fsSupported ? `<button class="primary" data-act="introPick">Choose this page's folder…</button>` : ''}<button ${S.handles.app ? 'class="primary"' : ''} data-act="introClose">Close</button></div></div></div>`;
-  o.classList.remove('hidden'); translateDom(o);
+      <li>Use <b>Library</b> to browse installed games, <b>Top lists</b> to compare a system with a top list from your chosen source, and <b>Free games</b> for top free homebrew and PC games by genre.</li></ol>
+      <p class="muted">Each time you open the page, the browser may ask you to allow access again; that's a browser safety rule. Nothing is uploaded: the only internet requests are list updates from Wikidata and Wikipedia when you ask for them.</p>`;
+  } else if (!busy) html += `<div class="notice info"><span class="tag ok" translate="no">✓</span> Everything is set up. Use <b>Library</b>, <b>Top lists</b> and <b>Free games</b>; <b>Settings › Setup check</b> has the details.</div>`;
+  return html;
+}
+function introButtons() {
+  return (!S.handles.app && fsSupported ? `<button class="primary" data-act="introPick">Choose this page's folder…</button>` : '')
+    + `<button ${S.handles.app ? 'class="primary"' : ''} data-act="introClose">${S.handles.app ? 'Done' : 'Close'}</button>`;
+}
+// Keeps the checks in the getting started page current while the folder is scanned and the catalogue is read.
+function refreshIntroChecks() {
+  const o = $('#intro'); if (o.classList.contains('hidden')) return;
+  const c = o.querySelector('#introBody'), b = o.querySelector('#introButtons');
+  if (c) { c.innerHTML = introBody(); translateDom(c); }
+  if (b) { b.innerHTML = introButtons(); translateDom(b); }
 }
 function closeIntro() {
   const hide = $('#introHide')?.checked;
@@ -1211,7 +1242,7 @@ function setDraft(patch) {
 const actions = {
   pickApp, pickRetro, pickRgsx, reconnect,
   intro: () => { S.introDismissed = false; showIntro(); },
-  introPick: () => { closeIntro(); pickApp(); },
+  introPick: () => pickApp(),   // the getting started page stays open and shows the checks
   introClose: closeIntro,
   scanAll: () => scanAll(),
   scanOne: async () => { S.busy = 'Scanning ' + sysLabel(S.sel) + '…'; renderStatus(); await scanFolder(S.sel); S.busy = ''; await cacheWrite('scan.json', { v: SCAN_VERSION, at: new Date().toISOString(), scan: S.scan }); render(); },
