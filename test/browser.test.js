@@ -22,5 +22,5 @@ const fs = require('fs'), path = require('path');
   const free = await p.evaluate(() => { S.tab = 'free'; return viewFree().length; });
   console.log(JSON.stringify({ intro, mainStartsWith: main.slice(0, 60), sql: r, freeHtml: free, errors }));
   await b.close();
-  if (errors.length || r.after !== 3001 || !intro) process.exit(1);
+  if (errors.length || r.after !== 3003 || !intro) process.exit(1);
 })();

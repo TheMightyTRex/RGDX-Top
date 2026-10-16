@@ -1,0 +1,293 @@
+{
+ "_about": "Websites with a top list for one system. 'rank' says what decides the order. Import them with the list grabber (Settings > a system > Add a list from a website). MobyGames and RetroAchievements links are added for every system automatically from systems.json.",
+ "amiga500": [
+  {
+   "name": "Lemon Amiga: top games",
+   "url": "https://www.lemonamiga.com/games/votes_list.php",
+   "rank": "votes",
+   "note": "Members' votes; the long-running Amiga community ranking."
+  },
+  {
+   "name": "Lemon Amiga: top adventure games",
+   "url": "https://www.lemonamiga.com/games/votes_list.php?genre_id=1",
+   "rank": "votes"
+  },
+  {
+   "name": "Lemon Amiga: top platformers",
+   "url": "https://www.lemonamiga.com/games/votes_list.php?genre_id=9",
+   "rank": "votes"
+  },
+  {
+   "name": "Lemon Amiga: top shoot 'em ups",
+   "url": "https://www.lemonamiga.com/games/votes_list.php?genre_id=11",
+   "rank": "votes"
+  },
+  {
+   "name": "Lemon Amiga: top sports games",
+   "url": "https://www.lemonamiga.com/games/votes_list.php?genre_id=13",
+   "rank": "votes"
+  },
+  {
+   "name": "Hall of Light",
+   "url": "https://hol.abime.net/",
+   "rank": "database",
+   "note": "The Amiga games database; use its search to list games by rating."
+  }
+ ],
+ "c64": [
+  {
+   "name": "Lemon64: top games",
+   "url": "https://www.lemon64.com/games/votes_list.php",
+   "rank": "votes",
+   "note": "Members' votes on Lemon64."
+  },
+  {
+   "name": "C64-Wiki: Top 100",
+   "url": "https://www.c64-wiki.com/wiki/C64-Wiki:TOP100",
+   "rank": "votes",
+   "note": "Best average score among games with at least four votes."
+  },
+  {
+   "name": "C64-Wiki: most voted games",
+   "url": "https://c64-wiki.com/wiki/C64-Wiki:Most-voted-list",
+   "rank": "votes"
+  }
+ ],
+ "zxspectrum": [
+  {
+   "name": "Spectrum Computing: top rated",
+   "url": "https://spectrumcomputing.co.uk/rating.php",
+   "rank": "rating",
+   "note": "Ratings from Spectrum Computing members (ZXDB)."
+  },
+  {
+   "name": "Time Extension: best ZX Spectrum games",
+   "url": "https://www.timeextension.com/guides/best-zx-spectrum-games",
+   "rank": "curated",
+   "note": "An unranked editorial selection."
+  }
+ ],
+ "amstradcpc": [
+  {
+   "name": "Time Extension: best Amstrad CPC games",
+   "url": "https://www.timeextension.com/guides/best-amstrad-cpc-games-of-all-time",
+   "rank": "curated"
+  },
+  {
+   "name": "CPC-Power",
+   "url": "https://www.cpc-power.com/",
+   "rank": "database",
+   "note": "French CPC database with member ratings."
+  }
+ ],
+ "msx1": [
+  {
+   "name": "Generation MSX: highest rated",
+   "url": "https://www.generation-msx.nl/software/topvotedlist",
+   "rank": "rating"
+  },
+  {
+   "name": "Generation MSX: most popular",
+   "url": "https://www.generation-msx.nl/software/toplist",
+   "rank": "popularity"
+  }
+ ],
+ "atarist": [
+  {
+   "name": "Atarimania: ST top 100 by rating",
+   "url": "https://www.atarimania.com/machines/atari-st/top?sort=rating",
+   "rank": "rating"
+  },
+  {
+   "name": "Atarimania: ST top 100 most downloaded",
+   "url": "https://www.atarimania.com/machines/atari-st/top?sort=downloads",
+   "rank": "popularity"
+  },
+  {
+   "name": "Atarimania: ST top 100 most viewed",
+   "url": "https://www.atarimania.com/machines/atari-st/top?sort=hits",
+   "rank": "popularity"
+  }
+ ],
+ "atari800": [
+  {
+   "name": "Atarimania: 8-bit top 100 by rating",
+   "url": "https://www.atarimania.com/machines/atari-400-800-xl-xe/top?sort=rating",
+   "rank": "rating"
+  },
+  {
+   "name": "Atarimania: 8-bit top 100 most downloaded",
+   "url": "https://www.atarimania.com/machines/atari-400-800-xl-xe/top?sort=downloads",
+   "rank": "popularity"
+  },
+  {
+   "name": "Atarimania: 8-bit top 100 most viewed",
+   "url": "https://www.atarimania.com/machines/atari-400-800-xl-xe/top?sort=hits",
+   "rank": "popularity"
+  }
+ ],
+ "atari2600": [
+  {
+   "name": "Atarimania: 2600 top 100 by rating",
+   "url": "https://www.atarimania.com/machines/atari-2600/top?sort=rating",
+   "rank": "rating"
+  },
+  {
+   "name": "Atarimania: 2600 top 100 most downloaded",
+   "url": "https://www.atarimania.com/machines/atari-2600/top?sort=downloads",
+   "rank": "popularity"
+  }
+ ],
+ "atari5200": [
+  {
+   "name": "Atarimania: 5200 top 100 by rating",
+   "url": "https://www.atarimania.com/machines/atari-5200/top?sort=rating",
+   "rank": "rating"
+  },
+  {
+   "name": "Atarimania: 5200 top 100 most downloaded",
+   "url": "https://www.atarimania.com/machines/atari-5200/top?sort=downloads",
+   "rank": "popularity"
+  }
+ ],
+ "jaguar": [
+  {
+   "name": "Atarimania: Jaguar top 100 by rating",
+   "url": "https://www.atarimania.com/machines/atari-jaguar/top?sort=rating",
+   "rank": "rating"
+  },
+  {
+   "name": "Atarimania: Jaguar top 100 most downloaded",
+   "url": "https://www.atarimania.com/machines/atari-jaguar/top?sort=downloads",
+   "rank": "popularity"
+  }
+ ],
+ "bbcmicro": [
+  {
+   "name": "Complete BBC Micro Games Archive",
+   "url": "https://www.bbcmicro.co.uk/",
+   "rank": "database",
+   "note": "Sort or filter by rating, then grab the list."
+  }
+ ],
+ "nes": [
+  {
+   "name": "Nintendo Life: best NES games",
+   "url": "https://www.nintendolife.com/guides/best-nes-games",
+   "rank": "editorial",
+   "note": "Ranked from Nintendo Life readers' ratings."
+  }
+ ],
+ "snes": [
+  {
+   "name": "Nintendo Life: 50 best SNES games",
+   "url": "https://www.nintendolife.com/guides/50-best-super-nintendo-snes-games-of-all-time",
+   "rank": "editorial",
+   "note": "Ranked from readers' ratings."
+  },
+  {
+   "name": "Nintendo Life: SNES games by reader rating",
+   "url": "https://www.nintendolife.com/snes/games/browse?sort=rating",
+   "rank": "rating"
+  }
+ ],
+ "n64": [
+  {
+   "name": "Nintendo Life: 50 best N64 games",
+   "url": "https://www.nintendolife.com/guides/50-best-nintendo-64-games-of-all-time",
+   "rank": "editorial"
+  }
+ ],
+ "gamecube": [
+  {
+   "name": "Nintendo Life: 50 best GameCube games",
+   "url": "https://www.nintendolife.com/guides/50-best-gamecube-games-of-all-time",
+   "rank": "editorial"
+  }
+ ],
+ "gb": [
+  {
+   "name": "Nintendo Life: 50 best Game Boy games",
+   "url": "https://www.nintendolife.com/guides/50-best-game-boy-games-of-all-time",
+   "rank": "editorial"
+  }
+ ],
+ "segacd": [
+  {
+   "name": "Time Extension: best Sega CD games",
+   "url": "https://www.timeextension.com/guides/best-sega-cd-games-of-all-time",
+   "rank": "editorial"
+  }
+ ],
+ "gamegear": [
+  {
+   "name": "Time Extension: best Game Gear games",
+   "url": "https://www.timeextension.com/guides/best-sega-game-gear-games-of-all-time",
+   "rank": "editorial"
+  }
+ ],
+ "megadrive": [
+  {
+   "name": "Time Extension: best Mega Drive RPGs and action adventures",
+   "url": "https://www.timeextension.com/guides/best-genesis-mega-drive-rpgs-and-action-adventures-of-all-time",
+   "rank": "editorial"
+  }
+ ],
+ "psx": [
+  {
+   "name": "Push Square: best PS1 games",
+   "url": "https://www.pushsquare.com/guides/best-ps1-games",
+   "rank": "editorial",
+   "note": "Ranked from Push Square readers' ratings."
+  }
+ ],
+ "ps2": [
+  {
+   "name": "Push Square: PS2 games by reader rating",
+   "url": "https://www.pushsquare.com/games/browse?system=ps2&sort=rating",
+   "rank": "rating"
+  }
+ ],
+ "psp": [
+  {
+   "name": "Push Square: best PSP games",
+   "url": "https://www.pushsquare.com/guides/best-psp-games",
+   "rank": "editorial"
+  },
+  {
+   "name": "Push Square: PSP games by reader rating",
+   "url": "https://www.pushsquare.com/games/browse?system=psp&sort=rating",
+   "rank": "rating"
+  }
+ ],
+ "pico8": [
+  {
+   "name": "PICO-8 BBS: featured carts",
+   "url": "https://www.lexaloffle.com/bbs/?cat=7",
+   "rank": "curated"
+  }
+ ],
+ "*nintendo": [
+  {
+   "name": "Nintendo Life: top 50 games on every Nintendo system",
+   "url": "https://nintendolife.com/guides/the-top-50-games-on-every-nintendo-system",
+   "rank": "editorial",
+   "systems": [
+    "nes",
+    "snes",
+    "n64",
+    "gb",
+    "gbc",
+    "gba",
+    "nds",
+    "3ds",
+    "gamecube",
+    "wii",
+    "wiiu",
+    "switch",
+    "virtualboy"
+   ],
+   "note": "One page with a section per system: select that system's section before grabbing."
+  }
+ ]
+}

@@ -5,7 +5,10 @@
    "Nintendo Entertainment System"
   ],
   "sales": "List of best-selling Nintendo Entertainment System video games",
-  "best": "(?<!Super )\\bNES\\b|Nintendo Entertainment System|\\bFamicom\\b"
+  "best": "(?<!Super )\\bNES\\b|Nintendo Entertainment System|\\bFamicom\\b",
+  "ra": 7,
+  "moby": "nes",
+  "rawg": "NES"
  },
  "fds": {
   "label": "Famicom Disk System",
@@ -20,7 +23,10 @@
    "Super Nintendo Entertainment System"
   ],
   "sales": "List of best-selling Super Nintendo Entertainment System video games",
-  "best": "SNES|Super NES|Super Nintendo|Super Famicom"
+  "best": "SNES|Super NES|Super Nintendo|Super Famicom",
+  "ra": 3,
+  "moby": "snes",
+  "rawg": "SNES"
  },
  "n64": {
   "label": "Nintendo 64",
@@ -28,7 +34,10 @@
    "Nintendo 64"
   ],
   "sales": "List of best-selling Nintendo 64 video games",
-  "best": "Nintendo 64|\\bN64\\b"
+  "best": "Nintendo 64|\\bN64\\b",
+  "ra": 2,
+  "moby": "n64",
+  "rawg": "Nintendo 64"
  },
  "gb": {
   "label": "Game Boy",
@@ -36,7 +45,10 @@
    "Game Boy"
   ],
   "sales": "List of best-selling Game Boy video games",
-  "best": "Game Boy(?! Advance| Color)"
+  "best": "Game Boy(?! Advance| Color)",
+  "ra": 4,
+  "moby": "gameboy",
+  "rawg": "Game Boy"
  },
  "gbc": {
   "label": "Game Boy Color",
@@ -44,7 +56,10 @@
    "Game Boy Color"
   ],
   "sales": "List of best-selling Game Boy video games",
-  "best": "Game Boy Color"
+  "best": "Game Boy Color",
+  "ra": 6,
+  "moby": "gameboy-color",
+  "rawg": "Game Boy Color"
  },
  "gba": {
   "label": "Game Boy Advance",
@@ -52,7 +67,10 @@
    "Game Boy Advance"
   ],
   "sales": "List of best-selling Game Boy Advance video games",
-  "best": "Game Boy Advance|\\bGBA\\b"
+  "best": "Game Boy Advance|\\bGBA\\b",
+  "ra": 5,
+  "moby": "gameboy-advance",
+  "rawg": "Game Boy Advance"
  },
  "nds": {
   "label": "Nintendo DS",
@@ -60,7 +78,10 @@
    "Nintendo DS"
   ],
   "sales": "List of best-selling Nintendo DS video games",
-  "best": "Nintendo DS|\\bDS\\b"
+  "best": "Nintendo DS|\\bDS\\b",
+  "ra": 18,
+  "moby": "nintendo-ds",
+  "rawg": "Nintendo DS"
  },
  "3ds": {
   "label": "Nintendo 3DS",
@@ -68,19 +89,25 @@
    "Nintendo 3DS"
   ],
   "sales": "List of best-selling Nintendo 3DS video games",
-  "best": "3DS"
+  "best": "3DS",
+  "moby": "3ds",
+  "rawg": "Nintendo 3DS"
  },
  "virtualboy": {
   "label": "Virtual Boy",
   "wiki": [
    "Virtual Boy"
-  ]
+  ],
+  "ra": 28,
+  "moby": "virtual-boy"
  },
  "pokemini": {
   "label": "Pokémon Mini",
   "wiki": [
    "Pokémon Mini"
-  ]
+  ],
+  "ra": 24,
+  "moby": "pokemon-mini"
  },
  "gamecube": {
   "label": "GameCube",
@@ -88,7 +115,10 @@
    "GameCube"
   ],
   "sales": "List of best-selling GameCube video games",
-  "best": "GameCube"
+  "best": "GameCube",
+  "ra": 16,
+  "moby": "gamecube",
+  "rawg": "GameCube"
  },
  "wii": {
   "label": "Wii",
@@ -96,7 +126,9 @@
    "Wii"
   ],
   "sales": "List of best-selling Wii video games",
-  "best": "\\bWii\\b(?! U)"
+  "best": "\\bWii\\b(?! U)",
+  "moby": "wii",
+  "rawg": "Wii"
  },
  "wiiu": {
   "label": "Wii U",
@@ -104,7 +136,9 @@
    "Wii U"
   ],
   "sales": "List of best-selling Wii U video games",
-  "best": "Wii U"
+  "best": "Wii U",
+  "moby": "wii-u",
+  "rawg": "Wii U"
  },
  "switch": {
   "label": "Nintendo Switch",
@@ -112,20 +146,26 @@
    "Nintendo Switch"
   ],
   "sales": "List of best-selling Nintendo Switch video games",
-  "best": "Switch"
+  "best": "Switch",
+  "moby": "switch",
+  "rawg": "Nintendo Switch"
  },
  "gameandwatch": {
   "label": "Game & Watch",
   "wiki": [
    "Game & Watch"
-  ]
+  ],
+  "moby": "dedicated-handheld"
  },
  "mastersystem": {
   "label": "Master System",
   "wiki": [
    "Master System"
   ],
-  "best": "Master System"
+  "best": "Master System",
+  "ra": 11,
+  "moby": "sega-master-system",
+  "rawg": "SEGA Master System"
  },
  "megadrive": {
   "label": "Mega Drive / Genesis",
@@ -133,20 +173,29 @@
    "Sega Genesis"
   ],
   "sales": "List of best-selling Sega Genesis games",
-  "best": "Genesis|Mega Drive"
+  "best": "Genesis|Mega Drive",
+  "ra": 1,
+  "moby": "genesis",
+  "rawg": "Genesis"
  },
  "gamegear": {
   "label": "Game Gear",
   "wiki": [
    "Game Gear"
   ],
-  "best": "Game Gear"
+  "best": "Game Gear",
+  "ra": 15,
+  "moby": "game-gear",
+  "rawg": "Game Gear"
  },
  "sega32x": {
   "label": "32X",
   "wiki": [
    "32X"
-  ]
+  ],
+  "ra": 10,
+  "moby": "sega-32x",
+  "rawg": "SEGA 32X"
  },
  "segacd": {
   "label": "Sega CD / Mega-CD",
@@ -156,7 +205,10 @@
   "aliases": [
    "megacd"
   ],
-  "best": "Sega CD|Mega-CD|Mega CD"
+  "best": "Sega CD|Mega-CD|Mega CD",
+  "ra": 9,
+  "moby": "sega-cd",
+  "rawg": "SEGA CD"
  },
  "saturn": {
   "label": "Saturn",
@@ -164,7 +216,10 @@
    "Sega Saturn"
   ],
   "sales": "List of best-selling Sega Saturn games",
-  "best": "Saturn"
+  "best": "Saturn",
+  "ra": 39,
+  "moby": "sega-saturn",
+  "rawg": "SEGA Saturn"
  },
  "dreamcast": {
   "label": "Dreamcast",
@@ -172,13 +227,18 @@
    "Dreamcast"
   ],
   "sales": "List of best-selling Dreamcast games",
-  "best": "Dreamcast"
+  "best": "Dreamcast",
+  "ra": 40,
+  "moby": "dreamcast",
+  "rawg": "Dreamcast"
  },
  "sg1000": {
   "label": "SG-1000",
   "wiki": [
    "SG-1000"
-  ]
+  ],
+  "ra": 33,
+  "moby": "sg-1000"
  },
  "psx": {
   "label": "PlayStation",
@@ -186,7 +246,10 @@
    "PlayStation (console)"
   ],
   "sales": "List of best-selling PlayStation video games",
-  "best": "PlayStation(?! [2345]| Portable| Vita)|\\bPS1\\b|\\bPSX\\b"
+  "best": "PlayStation(?! [2345]| Portable| Vita)|\\bPS1\\b|\\bPSX\\b",
+  "ra": 12,
+  "moby": "playstation",
+  "rawg": "PlayStation"
  },
  "ps2": {
   "label": "PlayStation 2",
@@ -194,7 +257,10 @@
    "PlayStation 2"
   ],
   "sales": "List of best-selling PlayStation 2 video games",
-  "best": "PlayStation 2|\\bPS2\\b"
+  "best": "PlayStation 2|\\bPS2\\b",
+  "ra": 21,
+  "moby": "ps2",
+  "rawg": "PlayStation 2"
  },
  "ps3": {
   "label": "PlayStation 3",
@@ -202,7 +268,9 @@
    "PlayStation 3"
   ],
   "sales": "List of best-selling PlayStation 3 video games",
-  "best": "PlayStation 3|\\bPS3\\b"
+  "best": "PlayStation 3|\\bPS3\\b",
+  "moby": "ps3",
+  "rawg": "PlayStation 3"
  },
  "psp": {
   "label": "PlayStation Portable",
@@ -210,14 +278,19 @@
    "PlayStation Portable"
   ],
   "sales": "List of best-selling PlayStation Portable video games",
-  "best": "PlayStation Portable|\\bPSP\\b"
+  "best": "PlayStation Portable|\\bPSP\\b",
+  "ra": 41,
+  "moby": "psp",
+  "rawg": "PSP"
  },
  "psvita": {
   "label": "PlayStation Vita",
   "wiki": [
    "PlayStation Vita"
   ],
-  "best": "PlayStation Vita"
+  "best": "PlayStation Vita",
+  "moby": "ps-vita",
+  "rawg": "PS Vita"
  },
  "xbox": {
   "label": "Xbox",
@@ -225,7 +298,9 @@
    "Xbox (console)"
   ],
   "sales": "List of best-selling Xbox games",
-  "best": "\\bXbox\\b(?! 360| One| Series)"
+  "best": "\\bXbox\\b(?! 360| One| Series)",
+  "moby": "xbox",
+  "rawg": "Xbox"
  },
  "xbox360": {
   "label": "Xbox 360",
@@ -233,34 +308,44 @@
    "Xbox 360"
   ],
   "sales": "List of best-selling Xbox 360 video games",
-  "best": "Xbox 360"
+  "best": "Xbox 360",
+  "moby": "xbox360",
+  "rawg": "Xbox 360"
  },
  "pcengine": {
   "label": "PC Engine / TurboGrafx-16",
   "wiki": [
    "TurboGrafx-16"
   ],
-  "best": "TurboGrafx|PC Engine"
+  "best": "TurboGrafx|PC Engine",
+  "ra": 8,
+  "moby": "turbo-grafx"
  },
  "pcenginecd": {
   "label": "PC Engine CD",
   "wiki": [
    "TurboGrafx-CD",
    "CD-ROM²"
-  ]
+  ],
+  "ra": 76,
+  "moby": "turbografx-cd"
  },
  "neogeo": {
   "label": "Neo Geo",
   "wiki": [
    "Neo Geo"
   ],
-  "best": "Neo Geo"
+  "best": "Neo Geo",
+  "moby": "neo-geo",
+  "rawg": "Neo Geo"
  },
  "neogeocd": {
   "label": "Neo Geo CD",
   "wiki": [
    "Neo Geo CD"
-  ]
+  ],
+  "ra": 56,
+  "moby": "neo-geo-cd"
  },
  "ngpc": {
   "label": "Neo Geo Pocket Color",
@@ -269,19 +354,25 @@
   ],
   "aliases": [
    "ngp"
-  ]
+  ],
+  "ra": 14,
+  "moby": "neo-geo-pocket-color"
  },
  "wswanc": {
   "label": "WonderSwan Color",
   "wiki": [
    "WonderSwan Color"
-  ]
+  ],
+  "ra": 53,
+  "moby": "wonderswan-color"
  },
  "wswan": {
   "label": "WonderSwan",
   "wiki": [
    "WonderSwan"
-  ]
+  ],
+  "ra": 53,
+  "moby": "wonderswan"
  },
  "mame": {
   "label": "Arcade (MAME)",
@@ -292,7 +383,9 @@
    "fbneo",
    "arcade"
   ],
-  "best": "Arcade"
+  "best": "Arcade",
+  "ra": 27,
+  "moby": "arcade"
  },
  "atari2600": {
   "label": "Atari 2600",
@@ -300,101 +393,134 @@
    "Atari 2600"
   ],
   "sales": "List of best-selling Atari 2600 video games",
-  "best": "Atari 2600|Atari VCS"
+  "best": "Atari 2600|Atari VCS",
+  "ra": 25,
+  "moby": "atari-2600",
+  "rawg": "Atari 2600"
  },
  "atari5200": {
   "label": "Atari 5200",
   "wiki": [
    "Atari 5200"
-  ]
+  ],
+  "moby": "atari-5200",
+  "rawg": "Atari 5200"
  },
  "atari7800": {
   "label": "Atari 7800",
   "wiki": [
    "Atari 7800"
-  ]
+  ],
+  "ra": 51,
+  "moby": "atari-7800",
+  "rawg": "Atari 7800"
  },
  "atari800": {
   "label": "Atari 8-bit",
   "wiki": [
    "Atari 8-bit computers"
   ],
-  "best": "Atari 8-bit|Atari 400|Atari 800"
+  "best": "Atari 8-bit|Atari 400|Atari 800",
+  "moby": "atari-8-bit",
+  "rawg": "Atari 8-bit"
  },
  "atarist": {
   "label": "Atari ST",
   "wiki": [
    "Atari ST"
   ],
-  "best": "Atari ST"
+  "best": "Atari ST",
+  "moby": "atari-st",
+  "rawg": "Atari ST"
  },
  "lynx": {
   "label": "Atari Lynx",
   "wiki": [
    "Atari Lynx"
-  ]
+  ],
+  "ra": 13,
+  "moby": "lynx",
+  "rawg": "Atari Lynx"
  },
  "jaguar": {
   "label": "Atari Jaguar",
   "wiki": [
    "Atari Jaguar"
-  ]
+  ],
+  "ra": 17,
+  "moby": "jaguar",
+  "rawg": "Jaguar"
  },
  "colecovision": {
   "label": "ColecoVision",
   "wiki": [
    "ColecoVision"
-  ]
+  ],
+  "ra": 44,
+  "moby": "colecovision"
  },
  "intellivision": {
   "label": "Intellivision",
   "wiki": [
    "Intellivision"
-  ]
+  ],
+  "ra": 45,
+  "moby": "intellivision"
  },
  "vectrex": {
   "label": "Vectrex",
   "wiki": [
    "Vectrex"
-  ]
+  ],
+  "ra": 46,
+  "moby": "vectrex"
  },
  "odyssey2": {
   "label": "Magnavox Odyssey 2",
   "wiki": [
    "Magnavox Odyssey 2"
-  ]
+  ],
+  "ra": 23,
+  "moby": "odyssey-2"
  },
  "3do": {
   "label": "3DO",
   "wiki": [
    "3DO"
-  ]
+  ],
+  "ra": 43,
+  "moby": "3do",
+  "rawg": "3DO"
  },
  "cdi": {
   "label": "Philips CD-i",
   "wiki": [
    "CD-i"
-  ]
+  ],
+  "moby": "cd-i"
  },
  "zxspectrum": {
   "label": "ZX Spectrum",
   "wiki": [
    "ZX Spectrum"
   ],
-  "best": "ZX Spectrum|Spectrum"
+  "best": "ZX Spectrum|Spectrum",
+  "moby": "zx-spectrum"
  },
  "c64": {
   "label": "Commodore 64",
   "wiki": [
    "Commodore 64"
   ],
-  "best": "Commodore 64|\\bC64\\b"
+  "best": "Commodore 64|\\bC64\\b",
+  "moby": "c64"
  },
  "c20": {
   "label": "Commodore VIC-20",
   "wiki": [
    "VIC-20"
-  ]
+  ],
+  "moby": "vic-20"
  },
  "amiga500": {
   "label": "Amiga",
@@ -405,27 +531,33 @@
    "amiga1200",
    "amiga4000"
   ],
-  "best": "Amiga"
+  "best": "Amiga",
+  "moby": "amiga",
+  "rawg": "Commodore / Amiga"
  },
  "amigacd32": {
   "label": "Amiga CD32",
   "wiki": [
    "Amiga CD32"
-  ]
+  ],
+  "moby": "amiga-cd32"
  },
  "amstradcpc": {
   "label": "Amstrad CPC",
   "wiki": [
    "Amstrad CPC"
   ],
-  "best": "Amstrad CPC|\\bCPC\\b"
+  "best": "Amstrad CPC|\\bCPC\\b",
+  "ra": 37,
+  "moby": "amstrad-cpc"
  },
  "bbcmicro": {
   "label": "BBC Micro",
   "wiki": [
    "BBC Micro"
   ],
-  "best": "BBC Micro"
+  "best": "BBC Micro",
+  "moby": "bbc-micro_"
  },
  "msx1": {
   "label": "MSX",
@@ -436,34 +568,44 @@
    "msx",
    "msx2"
   ],
-  "best": "\\bMSX"
+  "best": "\\bMSX",
+  "ra": 29,
+  "moby": "msx"
  },
  "apple2": {
   "label": "Apple II",
   "wiki": [
    "Apple II"
   ],
-  "best": "Apple II"
+  "best": "Apple II",
+  "ra": 38,
+  "moby": "apple2",
+  "rawg": "Apple II"
  },
  "pc88": {
   "label": "NEC PC-8801",
   "wiki": [
    "PC-8800 series"
   ],
-  "best": "PC-88|PC-8801"
+  "best": "PC-88|PC-8801",
+  "ra": 47,
+  "moby": "pc88"
  },
  "x68000": {
   "label": "Sharp X68000",
   "wiki": [
    "X68000"
-  ]
+  ],
+  "moby": "sharp-x68000"
  },
  "dos": {
   "label": "MS-DOS",
   "wiki": [
    "MS-DOS"
   ],
-  "best": "MS-DOS|\\bDOS\\b"
+  "best": "MS-DOS|\\bDOS\\b",
+  "moby": "dos",
+  "rawg": "PC"
  },
  "windows": {
   "label": "Windows PC",
@@ -471,7 +613,9 @@
    "Microsoft Windows"
   ],
   "sales": "List of best-selling PC games",
-  "best": "Windows|\\bPC\\b"
+  "best": "Windows|\\bPC\\b",
+  "moby": "windows",
+  "rawg": "PC"
  },
  "pico8": {
   "label": "PICO-8",
@@ -483,9 +627,11 @@
   "label": "TIC-80"
  },
  "arduboy": {
-  "label": "Arduboy"
+  "label": "Arduboy",
+  "ra": 71
  },
  "wasm4": {
-  "label": "WASM-4"
+  "label": "WASM-4",
+  "ra": 72
  }
 }

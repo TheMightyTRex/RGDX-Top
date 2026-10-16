@@ -11,6 +11,8 @@ CREATE TABLE games(id INTEGER PRIMARY KEY, platform_id INT, name TEXT, display_n
 c.execute("insert into platforms values(1,'NES (Archive)','nes')"); c.commit()
 c.execute("pragma wal_checkpoint(TRUNCATE)")
 for i in range(3000): c.execute("insert into games(platform_id,name) values(1,?)", (f"Nintendo - NES/Game {i} (USA).zip",))
+for n in ("Nintendo - NES/Super Mario Bros. (World).zip", "Nintendo - NES/Pac-Man (USA) (Namco).zip"):
+    c.execute("insert into games(platform_id,name) values(1,?)", (n,))
 c.execute("insert into platforms values(2,'SNES (Archive)','snes')")
 c.execute("insert into games(platform_id,name) values(2,'SNES/Super Metroid (Japan, USA).zip')")
 c.commit()
