@@ -307,7 +307,12 @@ def main(argv=None):
         return 0
 
     log("  Catalogue: reading %s ..." % os.path.basename(db_path))
-    by_folder, downloaded = load_catalogue(db_path)
+    try:
+        by_folder, downloaded = load_catalogue(db_path)
+    except sqlite3.Error as e:
+        log("\nCould not read the RGSX catalogue database:\n  %s\n  (%s)" % (db_path, e))
+        log("Close RGSX if it is running, make sure the drive/share is reachable, then try again.")
+        return 2
     log("  Catalogue: %s games across %s systems\n"
         % (format(sum(len(v) for v in by_folder.values()), ","), len(by_folder)))
 
@@ -398,7 +403,7 @@ def main(argv=None):
                 fh.write("\nSkipped:\n")
                 for title, reason in skipped:
                     fh.write("  %s  (%s)\n" % (title, reason))
-        log("Report written to %s" % report_path)
+        log("Report written to %s  (copy its contents if you need to report a problem)" % report_path)
     except Exception as e:
         log("Could not write report: %s" % e)
 
@@ -418,4 +423,29 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except KeyboardInterrupt:
+        print("\nCancelled.")
+        sys.exit(1)
+    except BaseException:
+        import platform
+        import traceback
+        print("\n================ COPY FROM HERE WHEN REPORTING A PROBLEM ================")
+        print("RGSX batch downloader - unexpected error")
+        print("When     : " + datetime.now().isoformat(timespec="seconds"))
+        print("Python   : " + sys.version.replace("\n", " "))
+        print("Platform : " + platform.platform())
+        print("Executable: " + sys.executable)
+        print("Argv     : " + " ".join(sys.argv))
+        print("CWD      : " + os.getcwd())
+        print("-" * 72)
+        print(traceback.format_exc())
+        print("================ COPY TO HERE ================")
+        try:
+            input("\nPress Enter to close. ")
+        except Exception:
+            pass
+        sys.exit(1)

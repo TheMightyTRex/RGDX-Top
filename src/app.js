@@ -56,6 +56,13 @@ const S = {
 };
 window.RLC = S; // handy for debugging in DevTools
 
+// Keep a rolling log of errors/warnings so testers can copy a full diagnostic.
+function logDiag(kind, msg, extra) {
+  try { (S.diaglog ||= []).push({ t: new Date().toISOString(), kind, msg: String(msg), extra: extra ? String(extra) : '' }); if (S.diaglog.length > 60) S.diaglog.shift(); } catch { }
+}
+window.addEventListener('error', e => logDiag('js-error', e.message || 'error', (e.filename || '') + ':' + (e.lineno || '') + (e.error && e.error.stack ? '\n' + e.error.stack : '')));
+window.addEventListener('unhandledrejection', e => { const r = e.reason || {}; logDiag('promise-rejection', r.message || r, r.stack || ''); });
+
 function defaultConfig() {
   return {
     app: 'RGSX Library Checker', configVersion: 1, showGettingStarted: true,
@@ -127,10 +134,12 @@ function mainTitle(s) {
 function cleanName(file) { return stripExt(file).replace(/\s*[\(\[][^\)\]]*[\)\]]/g, '').replace(/_/g, ' ').trim() || stripExt(file); }
 
 function toast(msg, kind = 'info') {
+  if (kind === 'err' || kind === 'warn') logDiag(kind, msg);
   S.errors.unshift({ msg, kind, at: Date.now() }); S.errors = S.errors.slice(0, 5); render();
 }
 // A message with names in it: translated as a whole sentence (see T in i18n.js).
 function toastT(tpl, vars, kind = 'info') {
+  if (kind === 'err' || kind === 'warn') logDiag(kind, T(tpl, vars));
   S.errors.unshift({ html: T(tpl, vars), kind, at: Date.now() }); S.errors = S.errors.slice(0, 5); render();
 }
 
@@ -744,7 +753,7 @@ function render() {
   renderStatus();
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === S.tab));
   const m = $('#main');
-  const notices = S.errors.filter(e => Date.now() - e.at < 20000).map(e => `<div class="notice ${e.kind === 'err' ? 'err' : e.kind === 'warn' ? '' : 'info'}">${e.html || esc(e.msg)}</div>`).join('');
+  const notices = S.errors.filter(e => Date.now() - e.at < 20000).map(e => `<div class="notice ${e.kind === 'err' ? 'err' : e.kind === 'warn' ? '' : 'info'}">${e.html || esc(e.msg)}${(e.kind === 'err' || e.kind === 'warn') ? ` <button class="small" data-act="copyDiag" title="Copy full diagnostics to the clipboard">Copy details</button>` : ''}</div>`).join('');
   let body = '';
   if (S.tab === 'help') body = viewHelp();
   else if (!fsSupported && S.tab === 'free') body = viewFree();
@@ -999,7 +1008,7 @@ function checksTable() {
   return '<table><tbody>' + setupChecks().map(x => `<tr><td><span class="tag ${cls[x.status]}" translate="no">${icon[x.status]}</span></td><td><b>${esc(x.title)}</b></td><td${x.title === 'Browser' && ENV.ok ? ' translate="no"' : ''}>${esc(x.detail)}${x.fix ? `<br><small class="muted">${esc(x.fix)}</small>` : ''}</td></tr>`).join('') + '</tbody></table>';
 }
 function settingsCheck() {
-  return `<div class="panel"><div class="row"><h2 style="margin:0">Setup check</h2><div class="grow"></div><button class="small" data-act="recheck">Check again</button></div>
+  return `<div class="panel"><div class="row"><h2 style="margin:0">Setup check</h2><div class="grow"></div><button class="small" data-act="copyDiag" title="Copy a full diagnostic report to the clipboard">Copy diagnostics</button><button class="small" data-act="recheck">Check again</button></div>
     <p class="muted">Works for RetroBat on Windows and for a Batocera share opened from Windows, macOS or Linux.</p>
     ${!S.firstRunCheck ? '' : '<div class="notice info">This check runs when you first connect a folder. You can come back to it any time from Settings › Setup check.</div>'}
     ${checksTable()}</div>`;
@@ -1234,7 +1243,7 @@ function rgsxChecksTable() {
 }
 function rgsxCheckView() {
   if (!S.rgsx) return `<div class="panel"><div class="empty">Checking…</div></div>`;
-  return `<div class="panel"><div class="row"><h2 style="margin:0">Is everything in place?</h2><div class="grow"></div><button class="small" data-act="rgsxRefresh">Check again</button></div>
+  return `<div class="panel"><div class="row"><h2 style="margin:0">Is everything in place?</h2><div class="grow"></div><button class="small" data-act="copyDiag" title="Copy a full diagnostic report to the clipboard">Copy diagnostics</button><button class="small" data-act="rgsxRefresh">Check again</button></div>
     <p class="muted">Checks the whole download pipeline: this folder, the RGSX app and catalogue, the one-click downloader, your download list and the optional source keys. Works for RetroBat on Windows and for a Batocera/Knulli share opened from Windows, macOS or Linux.</p>
     ${rgsxChecksTable()}</div>`;
 }
@@ -1289,6 +1298,73 @@ function rgsxSourcesView() {
     <p class="muted">Most games download directly with no key. These optional keys unlock extra hosts, and are saved as the plain text files RGSX reads in <code>saves\\ports\\rgsx</code>. ${writable ? '' : '<b>Allow edit access to your folder (Settings › Folders) to set them here.</b>'}</p>
     <div class="notice info"><b>Torrent platforms</b> (e.g. "Xbox 360 (Torrent)") download through qBittorrent. RGSX sets that up for you — start RGSX once and pick a torrent source. Status detected here: ${(S.rgsx || {}).torrent ? '<span class="tag ok">torrent settings found</span>' : '<span class="tag">not detected</span>'}.</div></div>
     ${rows}`;
+}
+// A full plain-text report testers can copy when something goes wrong.
+function rgsxDiagnostics() {
+  const p = S.rgsx || {}, c = S.catalog, L = [];
+  const add = s => L.push(s);
+  add('RGSX Library Checker diagnostics');
+  add('Generated : ' + new Date().toISOString());
+  add('App version: ' + APP_VERSION);
+  add('');
+  add('[Environment]');
+  add('  userAgent : ' + navigator.userAgent);
+  add('  browser   : ' + JSON.stringify(ENV));
+  add('  FS Access : ' + fsSupported);
+  add('  language  : ' + (S.config && S.config.lang));
+  add('');
+  add('[Folders]');
+  add('  page folder : ' + ((S.handles.app && S.handles.app.name) || '(none)') + (S.writable ? ' [writable]' : ' [read-only]'));
+  add('  paths       : ' + JSON.stringify(S.config.paths || {}));
+  add('  install     : ' + JSON.stringify(S.install || {}));
+  add('  rom folders : ' + ((S.folders || []).join(', ') || '(none)'));
+  add('');
+  add('[RGSX catalogue]');
+  if (c) {
+    add('  games       : ' + Object.values(c.counts).reduce((a, b) => a + b, 0));
+    add('  platforms   : ' + Object.keys(c.platforms).length);
+    add('  dbModified  : ' + (c.dbModified ? new Date(c.dbModified).toISOString() : '?'));
+    add('  revision    : ' + (c.seq || '?'));
+    add('  read at     : ' + (c.at || '?'));
+  } else add('  not loaded');
+  add('');
+  add('[Download pipeline]');
+  add('  runner files   : ' + JSON.stringify(p.runner || {}));
+  add('  python bundle  : ' + p.python);
+  add('  queue items    : ' + ((p.queue || []).length));
+  add('  source keys    : ' + JSON.stringify(p.keys || {}));
+  add('  torrent config : ' + p.torrent);
+  add('  download prefs : ' + JSON.stringify((S.config && S.config.download) || {}));
+  add('');
+  add('[Checks]');
+  try { for (const x of rgsxChecks()) add('  [' + x.status.toUpperCase() + '] ' + x.title + ': ' + x.detail + (x.fix ? '  (fix: ' + x.fix + ')' : '')); }
+  catch (e) { add('  (could not run checks: ' + e.message + ')'); }
+  add('');
+  const q = (p.queue || []);
+  add('[Queue] ' + q.length + ' item(s)');
+  for (const e of q.slice(0, 40)) add('  ' + ((e.type || 'game') === 'itch' ? 'itch:' + (e.system || '') + (e.tag ? '/' + e.tag : '') : (e.platform || '?') + ' | ' + (e.title || e.name || '')));
+  if (q.length > 40) add('  …and ' + (q.length - 40) + ' more');
+  add('');
+  const log = S.diaglog || [];
+  add('[Error / warning log] ' + log.length + ' entr(ies)');
+  if (!log.length) add('  (nothing logged this session)');
+  for (const e of log) add('  ' + e.t + ' [' + e.kind + '] ' + e.msg + (e.extra ? '\n      ' + e.extra.replace(/\n/g, '\n      ') : ''));
+  return L.join('\n');
+}
+async function copyText(text) {
+  try { if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(text); return true; } } catch { }
+  try { const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.focus(); ta.select(); const ok = document.execCommand('copy'); ta.remove(); return ok; } catch { return false; }
+}
+function showCopyModal(title, text) {
+  const o = document.createElement('div'); o.className = 'overlay';
+  o.innerHTML = `<div class="modal" style="max-width:780px"><h2>${esc(title)}</h2>
+    <p class="muted">If it wasn't copied automatically: click in the box, select all (Ctrl/Cmd+A), copy (Ctrl/Cmd+C), then paste into your message.</p>
+    <textarea readonly style="min-height:340px"></textarea>
+    <div class="foot"><span></span><div class="row"><button type="button" data-copy>Copy</button><button class="primary" type="button" data-x>Close</button></div></div>`;
+  const ta = o.querySelector('textarea'); ta.value = text;
+  o.querySelector('[data-x]').onclick = () => o.remove();
+  o.querySelector('[data-copy]').onclick = async () => { const ok = await copyText(text); toast(ok ? 'Copied to the clipboard.' : 'Select the text and press Ctrl/Cmd+C.'); };
+  document.body.appendChild(o); ta.focus(); ta.select();
 }
 function viewRgsx() {
   const page = S.rgsxPage || 'check';
@@ -1492,6 +1568,12 @@ const actions = {
     });
   },
   rgsxRefresh: () => { rgsxProbe(); },
+  copyDiag: async () => {
+    const text = rgsxDiagnostics();
+    const ok = await copyText(text);
+    if (ok) toast('Diagnostics copied to the clipboard — paste them into your bug report.');
+    else showCopyModal('RGSX diagnostics', text);
+  },
   rgsxGoList: () => { S.rgsxPage = 'list'; render(); window.scrollTo(0, 0); },
   rgsxAddItch: async () => {
     const c = S.config.free; const sys = c.system; if (!sys) return toast('Choose a system on the Free games tab first.', 'warn');
