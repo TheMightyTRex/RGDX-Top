@@ -78,6 +78,48 @@ def _tokens(s):
     return re.findall(r"[a-z0-9]+", str(s or "").lower())
 
 
+# Region / language preference (from rgsx-download-prefs.json or --region/--lang).
+REGION_TAGS = {
+    "us": ("usa", "us", "ntsc-u", "america"),
+    "eu": ("europe", "eu", "pal"),
+    "uk": ("uk", "united kingdom", "england", "en-gb"),
+    "jp": ("japan", "jp", "jpn", "ntsc-j", "asia"),
+    "world": ("world",),
+}
+LANG_TAGS = {
+    "en": ("en",), "fr": ("fr",), "es": ("es", "sp"), "de": ("de", "ge"), "nl": ("nl", "du"),
+    "it": ("it",), "pt": ("pt",), "ja": ("ja", "jp", "jpn"), "sv": ("sv", "se"), "da": ("da",),
+    "no": ("no",), "fi": ("fi",), "ru": ("ru",), "zh": ("zh", "cn"), "ko": ("ko", "kr"),
+}
+
+
+def _paren_text(name):
+    parts = re.findall(r"\(([^)]*)\)|\[([^\]]*)\]", str(name).lower())
+    return " ".join(a or b for a, b in parts)
+
+
+def clean_title(s):
+    """Game title with region/language/version tags removed, for matching plain titles."""
+    base = nkey(s)
+    base = re.sub(r"\([^)]*\)|\[[^\]]*\]|\{[^}]*\}", " ", base)
+    return re.sub(r"\s+", " ", base).strip()
+
+
+def variant_score(name, region, lang):
+    """Higher = better match for the preferred region, then language. Ties broken by caller."""
+    tags = _paren_text(name)
+    score = 0
+    if region and region != "any" and any(t in tags for t in REGION_TAGS.get(region, ())):
+        score += 1000
+    if lang and lang != "any" and any(re.search(r"(^|[^a-z])" + t + r"([^a-z]|$)", tags) for t in LANG_TAGS.get(lang, ())):
+        score += 100
+    # Mild, deterministic default preference so "any" still behaves sensibly.
+    for i, t in enumerate(("world", "usa", "europe", "en")):
+        if t in tags:
+            score += (4 - i)
+    return score
+
+
 def load_catalogue(db_path):
     uri = "file:{}?mode=ro".format(db_path.replace("?", "%3f"))
     con = sqlite3.connect(uri, uri=True)
@@ -101,38 +143,59 @@ def load_catalogue(db_path):
         con.close()
 
 
-def resolve(row, by_folder):
-    """Find the exact catalogue game for a queue row. Returns (game, note)."""
+def _best_variant(games, region, lang):
+    """Pick the variant that best matches region/lang; tie-break on the tidiest name."""
+    return max(games, key=lambda g: (variant_score(g["name"], region, lang), -len(g["name"])))
+
+
+def resolve(row, by_folder, region="any", lang="any"):
+    """Find the catalogue game for a queue row, honouring region/language. Returns (game, note)."""
     want_folder = str(row.get("platform") or "").strip()
     hints = [h for h in (row.get("name"), row.get("title")) if h]
     if not hints:
         return None, "no title in queue row"
 
-    search = []
+    # A pinned platform stays pinned; a bare title searches the whole catalogue.
     if want_folder and want_folder in by_folder:
-        search.append((want_folder, by_folder[want_folder]))
-    for f, games in by_folder.items():
-        if f != want_folder:
-            search.append((f, games))
+        search = [(want_folder, by_folder[want_folder])]
+    else:
+        search = list(by_folder.items())
 
+    pref = (region and region != "any") or (lang and lang != "any")
+    prefstr = "/".join(x for x in (region, lang) if x and x != "any")
+
+    def pick(cands):
+        g = _best_variant(cands, region, lang)
+        if len(cands) == 1:
+            return g, ""
+        if pref and variant_score(g["name"], region, lang) >= 100:
+            return g, "%d versions, picked best for %s" % (len(cands), prefstr)
+        return g, "%d versions, picked 1" % len(cands)
+
+    # 1) Exact name as given, or the same title once region/language tags are removed.
+    # Both are gathered together so a set region/language preference can choose the variant,
+    # even when an untagged entry exists.
     hint_keys = [nkey(h) for h in hints]
+    hint_clean = {clean_title(h) for h in hints if clean_title(h)}
     for f, games in search:
-        exact = [g for g in games
-                 if nkey(g["name"]) in hint_keys or (g["disp"] and nkey(g["disp"]) in hint_keys)]
-        if exact:
-            exact.sort(key=lambda g: len(g["name"]))
-            note = "" if len(exact) == 1 else "%d catalogue entries, picked 1" % len(exact)
-            return exact[0], note
+        cands = [g for g in games
+                 if nkey(g["name"]) in hint_keys or (g["disp"] and nkey(g["disp"]) in hint_keys)
+                 or clean_title(g["name"]) in hint_clean or (g["disp"] and clean_title(g["disp"]) in hint_clean)]
+        if cands:
+            return pick(cands)
 
+    # 2) Loose token match. If several and no region/language preference can separate them, skip.
     for f, games in search:
-        hit = []
-        for g in games:
-            gt = set(_tokens(g["name"])) | set(_tokens(g["disp"]))
-            if any(qt and all(tok in gt for tok in qt) for qt in [_tokens(h) for h in hints]):
-                hit.append(g)
+        hit = [g for g in games
+               if any(qt and all(tok in (set(_tokens(g["name"])) | set(_tokens(g["disp"]))) for tok in qt)
+                      for qt in [_tokens(h) for h in hints])]
         if len(hit) == 1:
             return hit[0], "fuzzy match"
         if len(hit) > 1:
+            if pref:
+                g = _best_variant(hit, region, lang)
+                if variant_score(g["name"], region, lang) >= 100:
+                    return g, "fuzzy, picked best for %s" % prefstr
             return None, "ambiguous (%d possible matches) - add it from the catalogue by its exact name" % len(hit)
 
     return None, "not found in the current catalogue - update it in RGSX, then re-export"
@@ -192,6 +255,8 @@ def main(argv=None):
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--keep", action="store_true")
     ap.add_argument("--root")
+    ap.add_argument("--region", help="Preferred region: uk, eu, us, jp, world, any")
+    ap.add_argument("--lang", help="Preferred language: en, fr, es, de, nl, ja, ... , any")
     args = ap.parse_args(argv)
 
     root = find_root(args.root)
@@ -199,8 +264,24 @@ def main(argv=None):
     db_path = os.path.join(root, "saves", "ports", "rgsx", "rgsx.sqlite3")
     cli = os.path.join(rgsx_dir, "rgsx_cli.py")
 
+    # Preferred region / language: rgsx-download-prefs.json next to the page, overridden by CLI flags.
+    region, lang = "any", "any"
+    try:
+        with open(os.path.join(root, "rgsx-download-prefs.json"), "r", encoding="utf-8-sig") as fh:
+            prefs = json.load(fh)
+        region = str(prefs.get("region") or "any").lower()
+        lang = str(prefs.get("lang") or "any").lower()
+    except Exception:
+        pass
+    if args.region:
+        region = args.region.lower()
+    if args.lang:
+        lang = args.lang.lower()
+
     log("RGSX batch downloader")
     log("  Folder : %s" % root)
+    if region != "any" or lang != "any":
+        log("  Prefer : region=%s language=%s" % (region, lang))
     if not os.path.isfile(cli):
         log("\nCould not find RGSX at:\n  %s\nStart RGSX once in RetroBat (Ports), then try again." % cli)
         return 2
@@ -248,7 +329,7 @@ def main(argv=None):
             jobs.append({"label": label, "cmd": cmd})
             continue
         # game
-        game, note = resolve(row, by_folder)
+        game, note = resolve(row, by_folder, region, lang)
         title = row.get("title") or row.get("name") or "?"
         if not game:
             skipped.append((title, note))
