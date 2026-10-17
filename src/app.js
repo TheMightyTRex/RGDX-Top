@@ -63,6 +63,7 @@ function defaultConfig() {
     topN: { source: 'wikidata', size: 100, system: '', show: 'all' },
     lang: 'en', library: { show: 'all' },
     free: { mode: 'retro', system: '', genre: 'all', pcGenre: 'all' },
+    download: { region: 'any', lang: 'any' },
     customLists: [], wishlist: {}, vault: { mode: 'device', items: {} }, updated: '',
   };
 }
@@ -235,7 +236,7 @@ async function cacheWrite(name, data) {
 function mergeConfig(c) {
   const d = defaultConfig();
   if (!c || typeof c !== 'object') return d;
-  return { ...d, ...c, paths: { ...d.paths, ...(c.paths || {}) }, library: { ...d.library, ...(c.library || {}) }, topN: { ...d.topN, ...(c.topN || {}) }, free: { ...d.free, ...(c.free || {}) },
+  return { ...d, ...c, paths: { ...d.paths, ...(c.paths || {}) }, library: { ...d.library, ...(c.library || {}) }, topN: { ...d.topN, ...(c.topN || {}) }, free: { ...d.free, ...(c.free || {}) }, download: { ...d.download, ...(c.download || {}) },
     customLists: Array.isArray(c.customLists) ? c.customLists : [], wishlist: c.wishlist && typeof c.wishlist === 'object' ? c.wishlist : {},
     vault: c.vault && c.vault.items ? c.vault : d.vault };
 }
@@ -952,7 +953,7 @@ function viewSettings() {
     return (!f || SYSTEMS[k].label.toLowerCase().includes(f) || k.includes(f)) ? item('sys:' + k, SYSTEMS[k].label, foldersFor(k).join(', ') + (n ? ` · ${n} list${n > 1 ? 's' : ''}` : ''), true) : '';
   };
   const menu = `<div class="panel"><b>Settings</b><div class="syslist" style="max-height:none">
-    ${item('general', 'General')}${item('check', 'Setup check')}${item('folders', 'Folders')}${item('sources', 'Top list sources')}${item('keys', 'API keys')}${item('itch', 'itch.io data')}</div>
+    ${item('general', 'General')}${item('check', 'Setup check')}${item('folders', 'Folders')}${item('downloads', 'Downloads')}${item('sources', 'Top list sources')}${item('keys', 'API keys')}${item('itch', 'itch.io data')}</div>
     <div class="row" style="margin-top:14px"><b>Systems</b><span class="muted">lists per system</span></div>
     <div class="row" style="margin-top:8px"><input type="search" id="setSysFilter" placeholder="Find a system…" value="${esc(S.setSysFilter || '')}" style="flex:1"></div>
     <div class="syslist">${mine.map(sysItem).join('')}
@@ -960,7 +961,7 @@ function viewSettings() {
     <div class="sysitem" data-act="toggleAllSys"><small>${S.showAllSys ? 'Hide systems without a ROM folder' : `Show ${rest.length} more systems without a ROM folder`}</small></div></div></div>`;
   let body;
   if (page.startsWith('sys:')) body = settingsSystem(page.slice(4));
-  else body = ({ general: settingsGeneral, check: settingsCheck, folders: settingsFolders, sources: settingsSources, keys: settingsKeys, itch: settingsItch })[page]();
+  else body = ({ general: settingsGeneral, check: settingsCheck, folders: settingsFolders, downloads: settingsDownloads, sources: settingsSources, keys: settingsKeys, itch: settingsItch })[page]();
   return `<div class="split"><div>${menu}</div><div>${body}</div></div>`;
 }
 const INSTALL_NAME = { retrobat: 'RetroBat', batocera: 'Batocera share', roms: 'A roms folder on its own', unknown: 'A folder with a roms folder' };
@@ -1002,6 +1003,19 @@ function settingsCheck() {
     <p class="muted">Works for RetroBat on Windows and for a Batocera share opened from Windows, macOS or Linux.</p>
     ${!S.firstRunCheck ? '' : '<div class="notice info">This check runs when you first connect a folder. You can come back to it any time from Settings › Setup check.</div>'}
     ${checksTable()}</div>`;
+}
+const DL_REGIONS = [['any', 'Any / no preference'], ['uk', 'UK'], ['eu', 'Europe (EU)'], ['us', 'USA'], ['jp', 'Japan'], ['world', 'World']];
+const DL_LANGS = [['any', 'Any / no preference'], ['en', 'English'], ['fr', 'French'], ['es', 'Spanish'], ['de', 'German'], ['nl', 'Dutch'], ['it', 'Italian'], ['pt', 'Portuguese'], ['ja', 'Japanese'], ['sv', 'Swedish'], ['da', 'Danish'], ['no', 'Norwegian'], ['fi', 'Finnish'], ['ru', 'Russian'], ['zh', 'Chinese'], ['ko', 'Korean']];
+function settingsDownloads() {
+  const d = S.config.download || { region: 'any', lang: 'any' };
+  const sel = (id, opts, val) => `<select id="${id}">${opts.map(([v, n]) => `<option value="${v}" ${v === val ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>`;
+  return `<div class="panel"><h2>Downloads</h2>
+    <p class="muted">When a game is in the RGSX catalogue in more than one region or language (for example <span translate="no">(USA)</span>, <span translate="no">(Europe)</span>, <span translate="no">(Japan)</span>), the downloader picks the version that best matches these. It only ever chooses between versions of the <b>same</b> game, and only when a list gives a plain title (your ☆ wishlist, a pasted or hand-kept list); it never downloads a different game. <b>Any</b> keeps the current behaviour — the tidiest match.</p>
+    <div class="kv">
+      <div>Preferred region</div><div>${sel('dlRegion', DL_REGIONS, d.region)}</div><div></div>
+      <div>Preferred language</div><div>${sel('dlLang', DL_LANGS, d.lang)}</div><div></div>
+    </div>
+    <p class="muted">Region is tried first, then language; if neither is available the best remaining version is used. Saved in your settings and, next to the page, as <code>rgsx-download-prefs.json</code> so the downloader reads it.${S.handles.app && S.writable ? '' : ' <b>Allow edit access to your folder (Folders) to write it for the downloader.</b>'}</p></div>`;
 }
 function settingsGeneral() {
   const cfg = JSON.stringify({ ...S.config, wishlist: `${Object.values(S.config.wishlist).flat().length} games`, customLists: `${S.config.customLists.length} lists`, vault: S.config.vault ? { mode: S.config.vault.mode, items: Object.keys(S.config.vault.items || {}).map(k => k + ' (encrypted)') } : undefined }, null, 2);
@@ -1118,10 +1132,19 @@ LINUX / macOS / BATOCERA / KNULLI
 
 Preview without downloading:  add  --dry-run  (e.g.  "Download with RGSX.bat" --dry-run)
 
-The list can hold catalogue games (added from Top lists or the RGSX tab) and
-free itch.io homebrew jobs. When it finishes it writes a report and clears the
-list. It uses the same Python and catalogue as RGSX, needs no setup of its own,
-and never changes or deletes your existing ROMs.`;
+KEEP YOUR OWN LIST
+  Instead of (or as well as) the buttons, you can hand-write a list. Make a file
+  called  rgsx-download-list.txt  in this folder, one title per line:
+      Sonic the Hedgehog
+      megadrive | Gunstar Heroes      (optional "system | title" pins a system)
+  The downloader picks it up automatically, or point it at any file:
+      "Download with RGSX.bat" --list mylist.txt
+
+The list can hold catalogue games (added from Top lists, the RGSX tab, your star
+wishlist or a pasted/hand-kept list) and free itch.io homebrew jobs. When it
+finishes it writes a report and clears the list. It uses the same Python and
+catalogue as RGSX, needs no setup of its own, and never changes or deletes your
+existing ROMs.`;
 
 // RGSX stores each download-source key as a plain text file in saves/ports/rgsx.
 const RGSX_KEY_FILES = { '1fichier': '1FichierAPI.txt', itch: 'ItchioAPI.txt', realdebrid: 'RealDebridAPI.txt', alldebrid: 'AllDebridAPI.txt', debridlink: 'DebridLinkAPI.txt', torbox: 'TorBoxAPI.txt' };
@@ -1156,6 +1179,7 @@ async function rgsxWriteQueue(newRows) {
   await writeText(S.handles.app, 'rgsx_batch_download.py', RUNNER_PY);
   await writeText(S.handles.app, 'Download with RGSX.bat', RUNNER_BAT.replace(/\r?\n/g, '\r\n'));
   await writeText(S.handles.app, 'RGSX-download.sh', RUNNER_SH.replace(/\r?\n/g, '\n'));
+  await writeText(S.handles.app, 'rgsx-download-prefs.json', JSON.stringify(S.config.download || { region: 'any', lang: 'any' }, null, 2));
   await writeText(S.handles.app, RGSX_HOWTO_NAME, RGSX_HOWTO.replace(/\r?\n/g, '\r\n'));
   return { added, total: existing.length };
 }
@@ -1576,6 +1600,11 @@ async function rgsxSaveKey(svc, del = false) {
   toast(del ? RGSX_KEY_INFO[svc].name + ' key removed.' : RGSX_KEY_INFO[svc].name + ' key saved.');
   await rgsxProbe();
 }
+// Write the region/language preference next to the page so the downloader honours it.
+async function rgsxWritePrefs() {
+  if (!(S.handles.app && S.writable)) return;
+  try { await writeText(S.handles.app, 'rgsx-download-prefs.json', JSON.stringify(S.config.download || { region: 'any', lang: 'any' }, null, 2)); } catch { }
+}
 document.addEventListener('click', async e => {
   const t = e.target.closest('[data-act],[data-sel],[data-sys],[data-star],[data-dellist],[data-tab],[data-setpage],[data-upd],[data-webfill],[data-savekey],[data-testkey],[data-delkey],[data-helpgo],[data-sys-top],[data-bookmarklet]'); if (!t) return;
   if (t.dataset.bookmarklet !== undefined) { e.preventDefault(); toast('Drag this link to your bookmarks bar, then click it on a page with a list.'); return; }
@@ -1614,6 +1643,8 @@ document.addEventListener('change', async e => {
   else if (t.id === 'pcGenre') c.free.pcGenre = t.value;
   else if (t.id === 'rgsxPlat') { S.rgsxPlat = t.value; S.rgsxSearch = ''; render(); return; }
   else if (t.id === 'rgsxSearch') { S.rgsxSearch = t.value; render(); return; }
+  else if (t.id === 'dlRegion') { (c.download ||= { region: 'any', lang: 'any' }).region = t.value; rgsxWritePrefs(); }
+  else if (t.id === 'dlLang') { (c.download ||= { region: 'any', lang: 'any' }).lang = t.value; rgsxWritePrefs(); }
   else if (t.name === 'vaultMode') { await Vault.setMode(t.value); render(); return; }
   else if (t.id === 'optIntro') { c.showGettingStarted = t.checked; ls.set('rlc.hideIntro', t.checked ? null : '1'); }
   else if (t.id === 'clFile' && t.files[0]) { const f = t.files[0]; $('#clItems').value = parseListText(await f.text(), f.name).join('\n'); if (!$('#clName').value) $('#clName').value = f.name.replace(/\.\w+$/, ''); return; }
