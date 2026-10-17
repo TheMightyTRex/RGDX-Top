@@ -15,8 +15,11 @@
     const url = it.querySelector('link').textContent.replace('https://', '').replace('.itch.io/', '~');
     if (idx.has(url)) return idx.get(url);
     const plat = [...it.querySelectorAll('platforms > *')].map(e => e.tagName[0]).join('');
-    const desc = dec((it.querySelector('description')?.textContent || '').split('\n')[0].replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim().slice(0, 90);
-    games.push([it.querySelector('plainTitle').textContent, url, plat, desc]); idx.set(url, games.length - 1); return games.length - 1;
+    const descHtml = it.querySelector('description')?.textContent || '';
+    const desc = dec(descHtml.split('\n')[0].replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim().slice(0, 90);
+    const im = descHtml.match(/<img[^>]+src=["']([^"']+)["']/i);
+    const img = im ? dec(im[1]) : '';
+    games.push([it.querySelector('plainTitle').textContent, url, plat, desc, img]); idx.set(url, games.length - 1); return games.length - 1;
   }
   async function feed(path) {
     for (let a = 0; a < 3; a++) {

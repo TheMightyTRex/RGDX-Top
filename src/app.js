@@ -69,8 +69,8 @@ function defaultConfig() {
     paths: { appFolder: '', retrobatFolder: '', romsFolder: '', rgsxFolder: '' },
     topN: { source: 'wikidata', size: 100, system: '', show: 'all' },
     lang: 'en', library: { show: 'all' },
-    free: { mode: 'retro', system: '', genre: 'all', pcGenre: 'all' },
-    download: { region: 'any', lang: 'any' },
+    free: { mode: 'retro', system: '', genre: 'all', pcGenre: 'all', view: 'tile' },
+    download: { regions: [], langs: [] },
     customLists: [], wishlist: {}, vault: { mode: 'device', items: {} }, updated: '',
   };
 }
@@ -242,10 +242,17 @@ async function cacheWrite(name, data) {
   const d = await cacheDir(true); if (!d) return;
   try { await writeText(d, name, JSON.stringify(data)); } catch (e) { console.warn('cache write', name, e); }
 }
+// Download region/language preference as arrays, migrating the old single-value form.
+function normDownload(d) {
+  d = d || {};
+  const regions = Array.isArray(d.regions) ? d.regions : (d.region && d.region !== 'any' ? [d.region] : []);
+  const langs = Array.isArray(d.langs) ? d.langs : (d.lang && d.lang !== 'any' ? [d.lang] : []);
+  return { regions: regions.filter(Boolean), langs: langs.filter(Boolean) };
+}
 function mergeConfig(c) {
   const d = defaultConfig();
   if (!c || typeof c !== 'object') return d;
-  return { ...d, ...c, paths: { ...d.paths, ...(c.paths || {}) }, library: { ...d.library, ...(c.library || {}) }, topN: { ...d.topN, ...(c.topN || {}) }, free: { ...d.free, ...(c.free || {}) }, download: { ...d.download, ...(c.download || {}) },
+  return { ...d, ...c, paths: { ...d.paths, ...(c.paths || {}) }, library: { ...d.library, ...(c.library || {}) }, topN: { ...d.topN, ...(c.topN || {}) }, free: { ...d.free, ...(c.free || {}) }, download: normDownload(c.download),
     customLists: Array.isArray(c.customLists) ? c.customLists : [], wishlist: c.wishlist && typeof c.wishlist === 'object' ? c.wishlist : {},
     vault: c.vault && c.vault.items ? c.vault : d.vault };
 }
@@ -895,18 +902,32 @@ function viewFree() {
   const mode = c.mode === 'pc' ? 'pc' : 'retro';
   const sysKeys = Object.keys(d.sys).sort((a, b) => (SYSTEMS[a]?.label || a).localeCompare(SYSTEMS[b]?.label || b));
   if (!c.system || !d.sys[c.system]) c.system = sysKeys.find(k => foldersFor(k).length || S.folders.includes(k)) || sysKeys[0];
+  const tiled = c.view !== 'list';
+  const hasImgs = G.some(g => g && g[4]);
   const head = `<div class="panel"><div class="row">
     <label><input type="radio" name="fmode" value="retro" ${mode === 'retro' ? 'checked' : ''}> Retro homebrew (ROMs for your systems)</label>
     <label><input type="radio" name="fmode" value="pc" ${mode === 'pc' ? 'checked' : ''}> PC &amp; browser games</label>
-    <div class="grow"></div><span class="muted">itch.io top-rated free games · ${d === ITCH_BUNDLED ? 'bundled' : 'updated'} ${D(d.fetched)}</span></div></div>`;
+    <div class="grow"></div>
+    <div class="row" style="gap:4px"><button class="small ${tiled ? 'primary' : ''}" data-act="freeTile" title="Tile view">▦ Tiles</button><button class="small ${!tiled ? 'primary' : ''}" data-act="freeList" title="List view">☰ List</button></div>
+    <span class="muted">itch.io top-rated free · ${d === ITCH_BUNDLED ? 'bundled' : 'updated'} ${D(d.fetched)}</span></div>
+    ${!hasImgs ? `<p class="muted" style="margin:8px 0 0">No screenshots in this data. Refresh the list in <b>Settings › itch.io data</b> to pull in cover images.</p>` : ''}</div>`;
   let body = '';
+  const wrap = items => `<div class="${tiled ? 'cards' : 'flist'}">${items || '<div class="empty">Nothing to show.</div>'}</div>`;
   const card = (i, sysKey) => {
     const g = G[i]; if (!g) return '';
     let have = null;
     if (sysKey) for (const f of [...foldersFor(sysKey), ...(S.folders.includes(sysKey) ? [sysKey] : [])]) { have = findIn(localIndex(f), { t: g[0] }); if (have) break; }
     const plats = [...new Set((g[2] || '').split('').map(p => PLAT[p]).filter(Boolean))];
-    return `<div class="card"><b translate="no"><a href="${esc(itchUrl(g[1]))}" target="_blank" rel="noopener">${esc(g[0])}</a></b> ${have ? '<span class="tag ok">Installed</span>' : ''}
-      <p translate="no">${esc(g[3] || '')}</p><div style="margin-top:6px">${plats.map(p => `<span class="tag">${p}</span>`).join('')}<span class="tag">by <span translate="no">${esc(g[1].split('~')[0])}</span></span></div></div>`;
+    const url = esc(itchUrl(g[1])), name = esc(g[0]), desc = esc(g[3] || ''), by = esc(g[1].split('~')[0]), img = g[4] ? esc(g[4]) : '';
+    const inst = have ? '<span class="tag ok">Installed</span>' : '';
+    const platTags = plats.map(p => `<span class="tag">${p}</span>`).join('');
+    if (!tiled) {
+      return `<div class="frow">${img ? `<a href="${url}" target="_blank" rel="noopener"><img class="fthumb" src="${img}" loading="lazy" alt=""></a>` : '<span class="fthumb"></span>'}
+        <div class="fmeta"><b translate="no"><a href="${url}" target="_blank" rel="noopener">${name}</a></b> ${inst} <div class="muted fdesc" translate="no">${desc}</div></div>
+        <div class="fplats">${platTags}<span class="tag">by <span translate="no">${by}</span></span></div></div>`;
+    }
+    return `<div class="card">${img ? `<a href="${url}" target="_blank" rel="noopener"><img class="fcover" src="${img}" loading="lazy" alt=""></a>` : ''}<b translate="no"><a href="${url}" target="_blank" rel="noopener">${name}</a></b> ${inst}
+      <p translate="no">${desc}</p><div style="margin-top:6px">${platTags}<span class="tag">by <span translate="no">${by}</span></span></div></div>`;
   };
   if (mode === 'retro') {
     const s = d.sys[c.system] || { all: [], genres: {} };
@@ -919,14 +940,14 @@ function viewFree() {
       <label>System <select id="frSystem">${sysKeys.map(k => `<option translate="no" value="${k}" ${k === c.system ? 'selected' : ''}>${esc(SYSTEMS[k]?.label || k)}${foldersFor(k).length || S.folders.includes(k) ? '' : ' ' + tr('(no folder)')}</option>`).join('')}</select></label>
       <label>Genre <select id="frGenre">${gopts}</select></label><div class="grow"></div>${more ? `<a href="${more}" target="_blank" rel="noopener">See more on itch.io ↗</a>` : ''}<button class="small" data-act="rgsxAddItch" title="Queue RGSX to install the free itch.io homebrew for this system">Send free homebrew to RGSX ⤓</button></div>
       <p class="muted">Homebrew tagged for this system on itch.io, filtered to free games without Windows, macOS, Linux or Android builds (those are usually PC games in a retro style). Check each page for the ROM file; save it into <code>roms\\${esc(foldersFor(c.system)[0] || c.system)}</code>.</p>
-      <div class="cards">${(ids || []).map(i => card(i, c.system)).join('') || '<div class="empty">No games in this genre.</div>'}</div></div>`;
+      ${wrap((ids || []).map(i => card(i, c.system)).join(''))}</div>`;
   } else {
     const genres = Object.keys(GENRES).filter(g => d.pc[g]);
     const gopts = `<option value="all">All genres</option>` + genres.map(g => `<option value="${g}" ${g === c.pcGenre ? 'selected' : ''}>${GENRES[g]}</option>`).join('');
     const show = c.pcGenre === 'all' ? genres : [c.pcGenre];
     body = `<div class="panel"><div class="row"><label>Genre <select id="pcGenre">${gopts}</select></label></div>
       <p class="muted">Top-rated free games on itch.io by genre. Windows games can be added to RetroBat's <code>roms\\windows</code> folder.</p>
-      ${show.map(g => `<h3>${GENRES[g]} <a class="muted" style="font-weight:400;font-size:12px" href="https://itch.io/games/top-rated/free/genre-${g}" target="_blank" rel="noopener">more ↗</a></h3><div class="cards">${d.pc[g].map(i => card(i, 'windows')).join('')}</div>`).join('')}</div>`;
+      ${show.map(g => `<h3>${GENRES[g]} <a class="muted" style="font-weight:400;font-size:12px" href="https://itch.io/games/top-rated/free/genre-${g}" target="_blank" rel="noopener">more ↗</a></h3>${wrap(d.pc[g].map(i => card(i, 'windows')).join(''))}`).join('')}</div>`;
   }
   const links = `<div class="panel"><h2>More places for free and homebrew games</h2><div class="cards">
     <div class="card"><b><a href="https://hh.gbdev.io/" target="_blank" rel="noopener">Homebrew Hub</a></b><p>Thousands of free Game Boy, Game Boy Color, GBA and NES homebrew ROMs, filterable by genre tag.</p></div>
@@ -1013,18 +1034,37 @@ function settingsCheck() {
     ${!S.firstRunCheck ? '' : '<div class="notice info">This check runs when you first connect a folder. You can come back to it any time from Settings › Setup check.</div>'}
     ${checksTable()}</div>`;
 }
-const DL_REGIONS = [['any', 'Any / no preference'], ['uk', 'UK'], ['eu', 'Europe (EU)'], ['us', 'USA'], ['jp', 'Japan'], ['world', 'World']];
-const DL_LANGS = [['any', 'Any / no preference'], ['en', 'English'], ['fr', 'French'], ['es', 'Spanish'], ['de', 'German'], ['nl', 'Dutch'], ['it', 'Italian'], ['pt', 'Portuguese'], ['ja', 'Japanese'], ['sv', 'Swedish'], ['da', 'Danish'], ['no', 'Norwegian'], ['fi', 'Finnish'], ['ru', 'Russian'], ['zh', 'Chinese'], ['ko', 'Korean']];
+const DL_REGIONS = [['uk', 'UK'], ['eu', 'Europe (EU)'], ['us', 'USA'], ['jp', 'Japan'], ['world', 'World']];
+const DL_LANGS = [['en', 'English'], ['fr', 'French'], ['es', 'Spanish'], ['de', 'German'], ['nl', 'Dutch'], ['it', 'Italian'], ['pt', 'Portuguese'], ['ja', 'Japanese'], ['sv', 'Swedish'], ['da', 'Danish'], ['no', 'Norwegian'], ['fi', 'Finnish'], ['ru', 'Russian'], ['zh', 'Chinese'], ['ko', 'Korean']];
+// Parenthetical region/language tags used to classify a catalogue game name.
+const RGSX_REGION_TAGS = { us: ['usa', 'us', 'ntsc-u', 'america'], eu: ['europe', 'eu', 'pal'], uk: ['uk', 'united kingdom', 'england', 'en-gb'], jp: ['japan', 'jp', 'jpn', 'ntsc-j', 'asia'], world: ['world'] };
+const RGSX_LANG_TAGS = { en: ['en'], fr: ['fr'], es: ['es', 'sp'], de: ['de', 'ge'], nl: ['nl', 'du'], it: ['it'], pt: ['pt'], ja: ['ja', 'jp', 'jpn'], sv: ['sv', 'se'], da: ['da'], no: ['no'], fi: ['fi'], ru: ['ru'], zh: ['zh', 'cn'], ko: ['ko', 'kr'] };
+function parenTags(name) { return (String(name).toLowerCase().match(/\(([^)]*)\)|\[([^\]]*)\]/g) || []).join(' '); }
+// True if this game name is allowed by the chosen region/language rules (untagged & World always allowed).
+function dlAllows(name) {
+  const dc = S.config.download || {}, regions = dc.regions || [], langs = dc.langs || [], tags = parenTags(name);
+  if (regions.length) {
+    const named = Object.keys(RGSX_REGION_TAGS).filter(k => k !== 'world' && RGSX_REGION_TAGS[k].some(t => tags.includes(t)));
+    const isWorld = RGSX_REGION_TAGS.world.some(t => tags.includes(t));
+    if (named.length && !isWorld && !named.some(r => regions.includes(r))) return false;
+  }
+  if (langs.length) {
+    const named = Object.keys(RGSX_LANG_TAGS).filter(k => RGSX_LANG_TAGS[k].some(t => new RegExp('(^|[^a-z])' + t + '([^a-z]|$)').test(tags)));
+    if (named.length && !named.some(l => langs.includes(l))) return false;
+  }
+  return true;
+}
 function settingsDownloads() {
-  const d = S.config.download || { region: 'any', lang: 'any' };
-  const sel = (id, opts, val) => `<select id="${id}">${opts.map(([v, n]) => `<option value="${v}" ${v === val ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>`;
-  return `<div class="panel"><h2>Downloads</h2>
-    <p class="muted">When a game is in the RGSX catalogue in more than one region or language (for example <span translate="no">(USA)</span>, <span translate="no">(Europe)</span>, <span translate="no">(Japan)</span>), the downloader picks the version that best matches these. It only ever chooses between versions of the <b>same</b> game, and only when a list gives a plain title (your ☆ wishlist, a pasted or hand-kept list); it never downloads a different game. <b>Any</b> keeps the current behaviour — the tidiest match.</p>
-    <div class="kv">
-      <div>Preferred region</div><div>${sel('dlRegion', DL_REGIONS, d.region)}</div><div></div>
-      <div>Preferred language</div><div>${sel('dlLang', DL_LANGS, d.lang)}</div><div></div>
-    </div>
-    <p class="muted">Region is tried first, then language; if neither is available the best remaining version is used. Saved in your settings and, next to the page, as <code>rgsx-download-prefs.json</code> so the downloader reads it.${S.handles.app && S.writable ? '' : ' <b>Allow edit access to your folder (Folders) to write it for the downloader.</b>'}</p></div>`;
+  const dc = S.config.download || { regions: [], langs: [] };
+  const grid = (opts, sel, attr) => `<div class="cards" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px">${opts.map(([v, n]) => `<label class="card" style="display:flex;gap:8px;align-items:center;padding:6px 10px;cursor:pointer"><input type="checkbox" ${attr}="${v}" ${sel.includes(v) ? 'checked' : ''}> ${esc(n)}</label>`).join('')}</div>`;
+  const rAll = dc.regions.length === DL_REGIONS.length, lAll = dc.langs.length === DL_LANGS.length;
+  return `<div class="panel"><h2>Downloads — region &amp; language</h2>
+    <p class="muted">Tick the regions and languages you want. These rules are <b>enforced</b>: the <b>RGSX › Catalogue</b> search hides versions that don't match, and the downloader only fetches a matching version — if a game has no matching version it's skipped (and noted in the report). Games with <b>no</b> region/language tag, and <span translate="no">(World)</span> releases, are always allowed. Leaving a group empty means <b>no restriction</b> for it.</p>
+    <div class="row" style="margin-top:4px"><h3 style="margin:0">Regions</h3><div class="grow"></div><button class="small" data-act="dlRegionsAll">${rAll ? 'Clear all' : 'Select all'}</button></div>
+    ${grid(DL_REGIONS, dc.regions, 'data-dlregion')}
+    <div class="row" style="margin-top:12px"><h3 style="margin:0">Languages</h3><div class="grow"></div><button class="small" data-act="dlLangsAll">${lAll ? 'Clear all' : 'Select all'}</button></div>
+    ${grid(DL_LANGS, dc.langs, 'data-dllang')}
+    <p class="muted" style="margin-top:12px">Currently: ${dc.regions.length ? 'regions ' + dc.regions.map(r => (DL_REGIONS.find(x => x[0] === r) || [r, r])[1]).join(', ') : 'all regions'}; ${dc.langs.length ? 'languages ' + dc.langs.map(l => (DL_LANGS.find(x => x[0] === l) || [l, l])[1]).join(', ') : 'all languages'}. Saved in your settings and, next to the page, as <code>rgsx-download-prefs.json</code> for the downloader.${S.handles.app && S.writable ? '' : ' <b>Allow edit access to your folder (Folders) to write it for the downloader.</b>'}</p></div>`;
 }
 function settingsGeneral() {
   const cfg = JSON.stringify({ ...S.config, wishlist: `${Object.values(S.config.wishlist).flat().length} games`, customLists: `${S.config.customLists.length} lists`, vault: S.config.vault ? { mode: S.config.vault.mode, items: Object.keys(S.config.vault.items || {}).map(k => k + ' (encrypted)') } : undefined }, null, 2);
@@ -1200,7 +1240,7 @@ async function rgsxWriteQueue(newRows) {
   await writeText(S.handles.app, 'rgsx_batch_download.py', RUNNER_PY);
   await writeText(S.handles.app, 'Download with RGSX.bat', RUNNER_BAT.replace(/\r?\n/g, '\r\n'));
   await writeText(S.handles.app, 'RGSX-download.sh', RUNNER_SH.replace(/\r?\n/g, '\n'));
-  await writeText(S.handles.app, 'rgsx-download-prefs.json', JSON.stringify(S.config.download || { region: 'any', lang: 'any' }, null, 2));
+  await writeText(S.handles.app, 'rgsx-download-prefs.json', JSON.stringify(S.config.download || { regions: [], langs: [] }, null, 2));
   await writeText(S.handles.app, RGSX_HOWTO_NAME, RGSX_HOWTO.replace(/\r?\n/g, '\r\n'));
   return { added, total: existing.length };
 }
@@ -1266,7 +1306,11 @@ function rgsxCatalogueView() {
   const label = f => ((S.catalog.sources[f] || [])[0] || f);
   const opts = plats.map(f => `<option value="${esc(f)}" ${f === S.rgsxPlat ? 'selected' : ''}>${esc(label(f))} — ${f} (${(S.catalog.counts[f] || 0).toLocaleString()})</option>`).join('');
   const q = (S.rgsxSearch || '').trim().toLowerCase();
-  const all = S.catalog.platforms[S.rgsxPlat] || [];
+  const allRaw = S.catalog.platforms[S.rgsxPlat] || [];
+  const dc = S.config.download || { regions: [], langs: [] };
+  const ruleOn = (dc.regions && dc.regions.length) || (dc.langs && dc.langs.length);
+  const all = ruleOn ? allRaw.filter(dlAllows) : allRaw;
+  const hidden = allRaw.length - all.length;
   const names = (q ? all.filter(n => n.toLowerCase().includes(q)) : all).slice().sort((a, b) => a.localeCompare(b));
   const cap = 400; const shown = names.slice(0, cap);
   const idx = localIndex(S.rgsxPlat);
@@ -1279,7 +1323,7 @@ function rgsxCatalogueView() {
       <label>System / program <select id="rgsxPlat">${opts}</select></label>
       <input type="search" id="rgsxSearch" placeholder="Search this platform…" value="${esc(S.rgsxSearch || '')}" style="flex:1;min-width:200px">
       <div class="grow"></div><button class="small" data-act="rgsxGoList">View download list</button></div>
-    <p class="muted">Every platform in the RGSX catalogue — consoles, computers, Windows programs, ports and more. Search, then <b>Add ⤓</b> any item to the download list. ${q ? `${names.length} match "${esc(q)}"` : `${all.length.toLocaleString()} items`}${names.length > cap ? `, showing first ${cap} — narrow with search` : ''}.</p>
+    <p class="muted">Every platform in the RGSX catalogue — consoles, computers, Windows programs, ports and more. Search, then <b>Add ⤓</b> any item to the download list. ${q ? `${names.length} match "${esc(q)}"` : `${all.length.toLocaleString()} items`}${names.length > cap ? `, showing first ${cap} — narrow with search` : ''}.${ruleOn ? ` <span class="tag warn">${hidden.toLocaleString()} hidden by your region/language rules</span> <button class="small" data-setpage="downloads">Change</button>` : ''}</p>
     <table><thead><tr><th>Game / program</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="2" class="empty">Nothing matches. Try a shorter search.</td></tr>'}</tbody></table></div>
   <div class="panel"><h3 style="margin-top:0">Keep your own list</h3>
     <p class="muted">Paste titles (one per line) to add to the download list for <b translate="no">${esc(label(S.rgsxPlat))}</b>. CSV uses the first column. The downloader matches each title to the catalogue when you run it — so this works for lists you keep by hand too. (You can also drop a <code>rgsx-download-list.txt</code> in your folder: one title per line, or <code>system | title</code>.)</p>
@@ -1652,6 +1696,10 @@ const actions = {
   copyItch: async () => { try { await navigator.clipboard.writeText(ITCH_SCRIPT); toast('Refresh script copied. Paste it into the console on itch.io.'); } catch { download('itch-refresh.js', ITCH_SCRIPT, 'text/javascript'); } },
   copyGrabber: async () => { try { await navigator.clipboard.writeText(GRABBER_SCRIPT); toast('Grabber copied. On the list page press F12, open Console, paste and press Enter.'); } catch { download('list-grabber.js', GRABBER_SCRIPT, 'text/javascript'); } },
   dropItch: async () => { S.itch = null; await cacheWrite('itch-free.json', null); render(); },
+  freeTile: () => { S.config.free.view = 'tile'; saveConfig(); render(); },
+  freeList: () => { S.config.free.view = 'list'; saveConfig(); render(); },
+  dlRegionsAll: () => { const c = (S.config.download ||= { regions: [], langs: [] }); c.regions = c.regions.length === DL_REGIONS.length ? [] : DL_REGIONS.map(x => x[0]); saveConfig(); rgsxWritePrefs(); render(); },
+  dlLangsAll: () => { const c = (S.config.download ||= { regions: [], langs: [] }); c.langs = c.langs.length === DL_LANGS.length ? [] : DL_LANGS.map(x => x[0]); saveConfig(); rgsxWritePrefs(); render(); },
   forget: async () => { for (const k of ['app', 'retro', 'rgsx']) await idb.set(k, undefined); S.handles = { app: null, retro: null, rgsx: null }; S.dirs = { roms: null, rgsx: null }; S.scan = {}; S.catalog = null; S.folders = []; render(); },
   toggleAllSys: () => { S.showAllSys = !S.showAllSys; render(); },
   recheck: async () => { await connect(false); S.tab = 'settings'; S.setPage = 'check'; render(); },
@@ -1704,10 +1752,10 @@ async function rgsxSaveKey(svc, del = false) {
 // Write the region/language preference next to the page so the downloader honours it.
 async function rgsxWritePrefs() {
   if (!(S.handles.app && S.writable)) return;
-  try { await writeText(S.handles.app, 'rgsx-download-prefs.json', JSON.stringify(S.config.download || { region: 'any', lang: 'any' }, null, 2)); } catch { }
+  try { await writeText(S.handles.app, 'rgsx-download-prefs.json', JSON.stringify(S.config.download || { regions: [], langs: [] }, null, 2)); } catch { }
 }
 document.addEventListener('click', async e => {
-  const t = e.target.closest('[data-act],[data-sel],[data-sys],[data-star],[data-dellist],[data-tab],[data-setpage],[data-upd],[data-webfill],[data-savekey],[data-testkey],[data-delkey],[data-helpgo],[data-sys-top],[data-bookmarklet]'); if (!t) return;
+  const t = e.target.closest('[data-act],[data-sel],[data-sys],[data-star],[data-dellist],[data-tab],[data-setpage],[data-upd],[data-webfill],[data-savekey],[data-testkey],[data-delkey],[data-helpgo],[data-sys-top],[data-bookmarklet],[data-rgsxpage],[data-rgsxadd],[data-rgsxkey],[data-rgsxkeydel]'); if (!t) return;
   if (t.dataset.bookmarklet !== undefined) { e.preventDefault(); toast('Drag this link to your bookmarks bar, then click it on a page with a list.'); return; }
   if (t.dataset.tab) { S.tab = t.dataset.tab; render(); window.scrollTo(0, 0); if (S.tab === 'rgsx') rgsxProbe(); return; }
   if (t.dataset.act) { actions[t.dataset.act]?.(); return; }
@@ -1744,8 +1792,8 @@ document.addEventListener('change', async e => {
   else if (t.id === 'pcGenre') c.free.pcGenre = t.value;
   else if (t.id === 'rgsxPlat') { S.rgsxPlat = t.value; S.rgsxSearch = ''; render(); return; }
   else if (t.id === 'rgsxSearch') { S.rgsxSearch = t.value; render(); return; }
-  else if (t.id === 'dlRegion') { (c.download ||= { region: 'any', lang: 'any' }).region = t.value; rgsxWritePrefs(); }
-  else if (t.id === 'dlLang') { (c.download ||= { region: 'any', lang: 'any' }).lang = t.value; rgsxWritePrefs(); }
+  else if (t.dataset.dlregion !== undefined) { const a = (c.download ||= { regions: [], langs: [] }).regions; const v = t.dataset.dlregion; const i = a.indexOf(v); if (t.checked && i < 0) a.push(v); else if (!t.checked && i >= 0) a.splice(i, 1); rgsxWritePrefs(); }
+  else if (t.dataset.dllang !== undefined) { const a = (c.download ||= { regions: [], langs: [] }).langs; const v = t.dataset.dllang; const i = a.indexOf(v); if (t.checked && i < 0) a.push(v); else if (!t.checked && i >= 0) a.splice(i, 1); rgsxWritePrefs(); }
   else if (t.name === 'vaultMode') { await Vault.setMode(t.value); render(); return; }
   else if (t.id === 'optIntro') { c.showGettingStarted = t.checked; ls.set('rlc.hideIntro', t.checked ? null : '1'); }
   else if (t.id === 'clFile' && t.files[0]) { const f = t.files[0]; $('#clItems').value = parseListText(await f.text(), f.name).join('\n'); if (!$('#clName').value) $('#clName').value = f.name.replace(/\.\w+$/, ''); return; }

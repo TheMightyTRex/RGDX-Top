@@ -105,15 +105,38 @@ def clean_title(s):
     return re.sub(r"\s+", " ", base).strip()
 
 
-def variant_score(name, region, lang):
-    """Higher = better match for the preferred region, then language. Ties broken by caller."""
+def _named_regions(tags):
+    return [k for k, ts in REGION_TAGS.items() if k != "world" and any(t in tags for t in ts)]
+
+
+def _named_langs(tags):
+    return [k for k, ts in LANG_TAGS.items() if any(re.search(r"(^|[^a-z])" + t + r"([^a-z]|$)", tags) for t in ts)]
+
+
+def eligible(name, regions, langs):
+    """Allowed by the region/language rules. Untagged and (World) are always allowed."""
+    tags = _paren_text(name)
+    if regions:
+        named = _named_regions(tags)
+        is_world = any(t in tags for t in REGION_TAGS["world"])
+        if named and not is_world and not any(r in regions for r in named):
+            return False
+    if langs:
+        named = _named_langs(tags)
+        if named and not any(l in langs for l in named):
+            return False
+    return True
+
+
+def variant_score(name, regions, langs):
+    """Higher = better match for the chosen regions, then languages. Ties broken by caller."""
     tags = _paren_text(name)
     score = 0
-    if region and region != "any" and any(t in tags for t in REGION_TAGS.get(region, ())):
+    if regions and any(r in regions for r in _named_regions(tags)):
         score += 1000
-    if lang and lang != "any" and any(re.search(r"(^|[^a-z])" + t + r"([^a-z]|$)", tags) for t in LANG_TAGS.get(lang, ())):
+    if langs and any(l in langs for l in _named_langs(tags)):
         score += 100
-    # Mild, deterministic default preference so "any" still behaves sensibly.
+    # Mild, deterministic default preference so an empty rule still behaves sensibly.
     for i, t in enumerate(("world", "usa", "europe", "en")):
         if t in tags:
             score += (4 - i)
@@ -143,13 +166,13 @@ def load_catalogue(db_path):
         con.close()
 
 
-def _best_variant(games, region, lang):
-    """Pick the variant that best matches region/lang; tie-break on the tidiest name."""
-    return max(games, key=lambda g: (variant_score(g["name"], region, lang), -len(g["name"])))
+def _best_variant(games, regions, langs):
+    """Pick the variant that best matches the rules; tie-break on the tidiest name."""
+    return max(games, key=lambda g: (variant_score(g["name"], regions, langs), -len(g["name"])))
 
 
-def resolve(row, by_folder, region="any", lang="any"):
-    """Find the catalogue game for a queue row, honouring region/language. Returns (game, note)."""
+def resolve(row, by_folder, regions=(), langs=()):
+    """Find the catalogue game for a queue row, enforcing region/language rules. Returns (game, note)."""
     want_folder = str(row.get("platform") or "").strip()
     hints = [h for h in (row.get("name"), row.get("title")) if h]
     if not hints:
@@ -161,20 +184,23 @@ def resolve(row, by_folder, region="any", lang="any"):
     else:
         search = list(by_folder.items())
 
-    pref = (region and region != "any") or (lang and lang != "any")
-    prefstr = "/".join(x for x in (region, lang) if x and x != "any")
+    rule = bool(regions) or bool(langs)
+    rulestr = "/".join(filter(None, [",".join(regions), ",".join(langs)]))
 
     def pick(cands):
-        g = _best_variant(cands, region, lang)
-        if len(cands) == 1:
+        # Enforce the rules: keep only versions that match (untagged/World always allowed).
+        allowed = [g for g in cands if eligible(g["name"], regions, langs)]
+        if rule and not allowed:
+            return None, "skipped - no version matches your region/language rules (%s)" % rulestr
+        use = allowed or cands
+        g = _best_variant(use, regions, langs)
+        if len(use) == 1:
             return g, ""
-        if pref and variant_score(g["name"], region, lang) >= 100:
-            return g, "%d versions, picked best for %s" % (len(cands), prefstr)
-        return g, "%d versions, picked 1" % len(cands)
+        if rule and variant_score(g["name"], regions, langs) >= 100:
+            return g, "%d versions, picked best for %s" % (len(use), rulestr)
+        return g, "%d versions, picked 1" % len(use)
 
     # 1) Exact name as given, or the same title once region/language tags are removed.
-    # Both are gathered together so a set region/language preference can choose the variant,
-    # even when an untagged entry exists.
     hint_keys = [nkey(h) for h in hints]
     hint_clean = {clean_title(h) for h in hints if clean_title(h)}
     for f, games in search:
@@ -184,19 +210,22 @@ def resolve(row, by_folder, region="any", lang="any"):
         if cands:
             return pick(cands)
 
-    # 2) Loose token match. If several and no region/language preference can separate them, skip.
+    # 2) Loose token match.
     for f, games in search:
         hit = [g for g in games
                if any(qt and all(tok in (set(_tokens(g["name"])) | set(_tokens(g["disp"]))) for tok in qt)
                       for qt in [_tokens(h) for h in hints])]
-        if len(hit) == 1:
-            return hit[0], "fuzzy match"
-        if len(hit) > 1:
-            if pref:
-                g = _best_variant(hit, region, lang)
-                if variant_score(g["name"], region, lang) >= 100:
-                    return g, "fuzzy, picked best for %s" % prefstr
-            return None, "ambiguous (%d possible matches) - add it from the catalogue by its exact name" % len(hit)
+        if hit:
+            allowed = [g for g in hit if eligible(g["name"], regions, langs)]
+            if rule and not allowed:
+                return None, "skipped - no version matches your region/language rules (%s)" % rulestr
+            use = allowed or hit
+            if len(use) == 1:
+                return use[0], "fuzzy match"
+            g = _best_variant(use, regions, langs)
+            if rule and variant_score(g["name"], regions, langs) >= 100:
+                return g, "fuzzy, picked best for %s" % rulestr
+            return None, "ambiguous (%d possible matches) - add it from the catalogue by its exact name" % len(use)
 
     return None, "not found in the current catalogue - update it in RGSX, then re-export"
 
@@ -255,8 +284,8 @@ def main(argv=None):
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--keep", action="store_true")
     ap.add_argument("--root")
-    ap.add_argument("--region", help="Preferred region: uk, eu, us, jp, world, any")
-    ap.add_argument("--lang", help="Preferred language: en, fr, es, de, nl, ja, ... , any")
+    ap.add_argument("--region", help="Region rule(s), comma-separated: uk,eu,us,jp,world (overrides the saved rules)")
+    ap.add_argument("--lang", help="Language rule(s), comma-separated: en,fr,es,de,nl,ja,... (overrides the saved rules)")
     args = ap.parse_args(argv)
 
     root = find_root(args.root)
@@ -264,24 +293,30 @@ def main(argv=None):
     db_path = os.path.join(root, "saves", "ports", "rgsx", "rgsx.sqlite3")
     cli = os.path.join(rgsx_dir, "rgsx_cli.py")
 
-    # Preferred region / language: rgsx-download-prefs.json next to the page, overridden by CLI flags.
-    region, lang = "any", "any"
+    # Region / language rules: rgsx-download-prefs.json next to the page, overridden by CLI flags.
+    def _as_list(v):
+        if isinstance(v, (list, tuple)):
+            return [str(x).strip().lower() for x in v if str(x).strip() and str(x).strip().lower() != "any"]
+        s = str(v or "").strip().lower()
+        return [] if (not s or s == "any") else [p.strip() for p in s.split(",") if p.strip()]
+
+    regions, langs = [], []
     try:
         with open(os.path.join(root, "rgsx-download-prefs.json"), "r", encoding="utf-8-sig") as fh:
             prefs = json.load(fh)
-        region = str(prefs.get("region") or "any").lower()
-        lang = str(prefs.get("lang") or "any").lower()
+        regions = _as_list(prefs.get("regions", prefs.get("region")))
+        langs = _as_list(prefs.get("langs", prefs.get("lang")))
     except Exception:
         pass
-    if args.region:
-        region = args.region.lower()
-    if args.lang:
-        lang = args.lang.lower()
+    if args.region is not None:
+        regions = _as_list(args.region)
+    if args.lang is not None:
+        langs = _as_list(args.lang)
 
     log("RGSX batch downloader")
     log("  Folder : %s" % root)
-    if region != "any" or lang != "any":
-        log("  Prefer : region=%s language=%s" % (region, lang))
+    if regions or langs:
+        log("  Rules  : regions=%s languages=%s" % (",".join(regions) or "all", ",".join(langs) or "all"))
     if not os.path.isfile(cli):
         log("\nCould not find RGSX at:\n  %s\nStart RGSX once in RetroBat (Ports), then try again." % cli)
         return 2
@@ -334,7 +369,7 @@ def main(argv=None):
             jobs.append({"label": label, "cmd": cmd})
             continue
         # game
-        game, note = resolve(row, by_folder, region, lang)
+        game, note = resolve(row, by_folder, regions, langs)
         title = row.get("title") or row.get("name") or "?"
         if not game:
             skipped.append((title, note))

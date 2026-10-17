@@ -70,6 +70,14 @@ tr.miss td:first-child { box-shadow: inset 3px 0 var(--bad); }
 .card { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--panel); }
 .card b a { text-decoration: none; }
 .card p { margin: 4px 0 0; font-size: 12.5px; color: var(--muted); }
+.fcover { width: 100%; height: 120px; object-fit: cover; border-radius: 6px; margin-bottom: 8px; display: block; background: var(--panel2); }
+.flist { display: flex; flex-direction: column; }
+.frow { display: flex; gap: 12px; align-items: center; padding: 7px 4px; border-bottom: 1px solid var(--line); }
+.frow .fthumb { width: 72px; height: 44px; flex: 0 0 auto; object-fit: cover; border-radius: 4px; background: var(--panel2); }
+.frow .fmeta { min-width: 0; flex: 1; }
+.frow .fdesc { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.frow .fplats { flex: 0 0 auto; text-align: right; max-width: 42%; }
+@media (max-width: 680px) { .frow .fdesc { display: none; } .frow .fplats { max-width: 50%; } }
 .progress { font-size: 12px; color: var(--muted); }
 .notice { padding: 10px 12px; border-radius: 10px; background: var(--warn-bg); color: var(--warn); margin-bottom: 12px; }
 .notice.info { background: var(--chip); color: var(--text); }
