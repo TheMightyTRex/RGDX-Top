@@ -1315,6 +1315,7 @@ async function rgsxProbe() {
     r.runner.bat = !!(await tryFile(app, 'Download with RGSX.bat'));
     r.runner.sh = !!(await tryFile(app, 'RGSX-download.sh'));
     r.queue = (await readJSON(app, RGSX_QUEUE_JSON)) || [];
+    r.failed = (await readJSON(app, 'rgsx-download-failed.json')) || [];
     r.python = !!(await fileAt(app, ['system', 'tools', 'Python', 'python.exe']));  // Windows bundle
   }
   const rg = S.dirs.rgsx;
@@ -1394,17 +1395,29 @@ function rgsxCatalogueView() {
 }
 function rgsxListView() {
   const list = (S.rgsx && S.rgsx.queue) || [];
+  const failed = (S.rgsx && S.rgsx.failed) || [];
+  const failKeys = new Set(failed.map(rgsxKey));
+  const failTag = e => failKeys.has(rgsxKey(e)) ? ' <span class="tag no" title="Failed on the last run; skipped until you Retry">⚠ failed</span>' : '';
   const rows = list.map(e => (e.type || 'game') === 'itch'
-    ? `<tr><td style="width:28px"><input type="checkbox" class="qpick" data-key="${esc(rgsxKey(e))}"></td><td><span class="tag">itch.io</span> <span translate="no">Free homebrew: ${esc(e.system || '')}${e.tag ? ' / ' + esc(e.tag) : ''}</span></td><td class="muted">${esc(e.source || '')}</td></tr>`
-    : `<tr><td style="width:28px"><input type="checkbox" class="qpick" data-key="${esc(rgsxKey(e))}"></td><td><span translate="no">${esc(e.title || e.name || '')}</span> <small class="muted" translate="no">${esc(e.platform || '')}</small></td><td class="muted">${esc(e.source || '')}</td></tr>`).join('');
+    ? `<tr><td style="width:28px"><input type="checkbox" class="qpick" data-key="${esc(rgsxKey(e))}"></td><td><span class="tag">itch.io</span> <span translate="no">Free homebrew: ${esc(e.system || '')}${e.tag ? ' / ' + esc(e.tag) : ''}</span>${failTag(e)}</td><td class="muted">${esc(e.source || '')}</td></tr>`
+    : `<tr><td style="width:28px"><input type="checkbox" class="qpick" data-key="${esc(rgsxKey(e))}"></td><td><span translate="no">${esc(e.title || e.name || '')}</span> <small class="muted" translate="no">${esc(e.platform || '')}</small>${failTag(e)}</td><td class="muted">${esc(e.source || '')}</td></tr>`).join('');
   const wlCount = Object.values(S.config.wishlist || {}).reduce((a, l) => a + ((l && l.length) || 0), 0);
+  let failPanel = '';
+  if (failed.length) {
+    const groups = {};
+    for (const e of failed) { const s = String(e.system || e.platform || '?'); (groups[s] ||= []).push(e); }
+    const grp = Object.keys(groups).sort().map(s => `<div style="margin-top:8px"><div class="row"><b translate="no">${esc(s)}</b> <span class="tag no">${groups[s].length} failed</span><div class="grow"></div><button class="small" data-rgsxretry="${esc(s)}">Retry ${esc(s)} ⟳</button></div>
+      <table><tbody>${groups[s].map(e => `<tr><td><span translate="no">${esc(e.title || e.name || '')}</span></td><td class="muted">${esc(e.reason || 'failed')}${e.at ? ' · ' + esc(String(e.at).slice(0, 16).replace('T', ' ')) : ''}</td></tr>`).join('')}</tbody></table></div>`).join('');
+    failPanel = `<div class="panel"><div class="row"><h2 style="margin:0">Failed downloads</h2><span class="tag no">${failed.length}</span><div class="grow"></div><button class="small" data-act="rgsxRetryAll">Retry all ⟳</button><button class="small" data-act="rgsxDropFailed">Drop from list</button></div>
+      <p class="muted">These failed on the last run and are <b>skipped automatically</b> next time. <b>Retry</b> clears the failure so they're attempted again (they stay in the download list); <b>Drop from list</b> removes them from the download list entirely.</p>${grp}</div>`;
+  }
   return `<div class="panel"><div class="row"><h2 style="margin:0">Download list</h2><div class="grow"></div>
       ${wlCount ? `<button class="small" data-act="sendWishlistToRgsx" title="Add every ☆ wishlist game that is missing and in the catalogue">Add ☆ wishlist (${wlCount})</button>` : ''}
       <button class="small" data-act="rgsxRefresh">Refresh</button>${list.length ? '<button class="small" data-act="clearRgsx">Clear list</button>' : ''}</div>
-    ${list.length ? `<div class="row" style="margin:4px 0 8px"><button class="small" data-act="qAll">Select all</button><button class="small" data-act="qNone">Clear</button><button class="small" data-act="qRemoveSel">Remove selected</button><span class="muted">everything in this list is downloaded when you run the downloader</span></div>
+    ${list.length ? `<div class="row" style="margin:4px 0 8px"><button class="small" data-act="qAll">Select all</button><button class="small" data-act="qNone">Clear</button><button class="small" data-act="qRemoveSel">Remove selected</button><span class="muted">everything here is downloaded when you run the downloader (⚠ failed items are skipped until you Retry)</span></div>
       <table><thead><tr><th></th><th>Item</th><th>Added from</th></tr></thead><tbody>${rows}</tbody></table>
       <div class="notice info" style="margin-top:12px">To download these, go to your folder <b translate="no">${esc((S.handles.app || {}).name || '')}</b> and run <b>Download with RGSX.bat</b> (Windows) or <b>RGSX-download.sh</b> (Linux / macOS / Batocera / Knulli). Close RGSX first. Steps are in <code>${RGSX_HOWTO_NAME}</code>.</div>`
-      : '<div class="empty">The list is empty. Add games from Top lists (tick + Add selected) or the Catalogue tab, or send free homebrew from Free games.</div>'}</div>`;
+      : '<div class="empty">The list is empty. Add games from Top lists (tick + Add selected) or the Catalogue tab, or send free homebrew from Free games.</div>'}</div>${failPanel}`;
 }
 function rgsxSourcesView() {
   const ks = (S.rgsx || {}).keys || {};
@@ -1716,6 +1729,27 @@ const actions = {
     for (const n of ['rgsx-download-queue.json', 'rgsx-download-queue.csv']) { try { await S.handles.app.removeEntry(n); removed = true; } catch { } }
     toast(removed ? 'RGSX download list cleared.' : 'No download list to clear.');
   },
+  rgsxRetryAll: async () => {
+    if (!(S.handles.app && S.writable)) return toast('The folder is read-only.', 'warn');
+    try { await S.handles.app.removeEntry('rgsx-download-failed.json'); } catch { }
+    toast('Cleared the failed list — those items will be attempted again next run.');
+    await rgsxProbe();
+  },
+  rgsxDropFailed: async () => {
+    if (!(S.handles.app && S.writable)) return toast('The folder is read-only.', 'warn');
+    const failed = (await readJSON(S.handles.app, 'rgsx-download-failed.json')) || [];
+    if (!failed.length) return toast('No failed items to drop.');
+    const keys = new Set(failed.map(rgsxKey));
+    const q = (await readJSON(S.handles.app, RGSX_QUEUE_JSON)) || [];
+    const kept = q.filter(e => !keys.has(rgsxKey(e)));
+    try {
+      await writeText(S.handles.app, RGSX_QUEUE_JSON, JSON.stringify(kept, null, 2));
+      await writeText(S.handles.app, RGSX_QUEUE_CSV, rgsxQueueCsv(kept));
+      await S.handles.app.removeEntry('rgsx-download-failed.json');
+    } catch (e) { return toast('Could not update the lists: ' + e.message, 'err'); }
+    toastT('Dropped {n} failed item(s) from the download list.', { n: failed.length });
+    await rgsxProbe();
+  },
   // Add every starred (☆) wishlist game that is missing and in the catalogue.
   sendWishlistToRgsx: async () => {
     if (!S.catalog) return toast('Load the RGSX catalogue first (Settings › Folders).', 'warn');
@@ -1868,8 +1902,20 @@ async function rgsxWritePrefs() {
   if (!(S.handles.app && S.writable)) return;
   try { await writeText(S.handles.app, 'rgsx-download-prefs.json', JSON.stringify(S.config.download || { regions: [], langs: [] }, null, 2)); } catch { }
 }
+// Clear the failed mark for one system so its items are attempted again next run.
+async function rgsxRetrySystem(sys) {
+  if (!(S.handles.app && S.writable)) return toast('The folder is read-only.', 'warn');
+  const failed = (await readJSON(S.handles.app, 'rgsx-download-failed.json')) || [];
+  const keep = failed.filter(e => String(e.system || e.platform || '').toLowerCase() !== String(sys).toLowerCase());
+  try {
+    if (keep.length) await writeText(S.handles.app, 'rgsx-download-failed.json', JSON.stringify(keep, null, 2));
+    else await S.handles.app.removeEntry('rgsx-download-failed.json');
+  } catch (e) { return toast('Could not update the failed list: ' + e.message, 'err'); }
+  toastT('{sys} will be attempted again next run.', { sys });
+  await rgsxProbe();
+}
 document.addEventListener('click', async e => {
-  const t = e.target.closest('[data-act],[data-sel],[data-sys],[data-star],[data-dellist],[data-tab],[data-setpage],[data-upd],[data-webfill],[data-savekey],[data-testkey],[data-delkey],[data-helpgo],[data-sys-top],[data-bookmarklet],[data-rgsxpage],[data-rgsxadd],[data-rgsxkey],[data-rgsxkeydel]'); if (!t) return;
+  const t = e.target.closest('[data-act],[data-sel],[data-sys],[data-star],[data-dellist],[data-tab],[data-setpage],[data-upd],[data-webfill],[data-savekey],[data-testkey],[data-delkey],[data-helpgo],[data-sys-top],[data-bookmarklet],[data-rgsxpage],[data-rgsxadd],[data-rgsxkey],[data-rgsxkeydel],[data-rgsxretry]'); if (!t) return;
   if (t.dataset.bookmarklet !== undefined) { e.preventDefault(); toast('Drag this link to your bookmarks bar, then click it on a page with a list.'); return; }
   if (t.dataset.tab) { S.tab = t.dataset.tab; render(); window.scrollTo(0, 0); if (S.tab === 'rgsx') rgsxProbe(); return; }
   if (t.dataset.act) { actions[t.dataset.act]?.(); return; }
@@ -1878,6 +1924,7 @@ document.addEventListener('click', async e => {
   if (t.dataset.rgsxadd) { const v = JSON.parse(t.dataset.rgsxadd); try { const res = await rgsxWriteQueue([{ type: 'game', platform: v.p, name: v.n, title: v.n, source: 'catalogue' }]); toastT('Added “{n}”. {total} in the download list.', { n: v.n, total: res.total }); if (S.rgsx) rgsxProbe(); } catch (err) { toast('Could not add: ' + err.message, 'err'); } return; }
   if (t.dataset.rgsxkey) { await rgsxSaveKey(t.dataset.rgsxkey); return; }
   if (t.dataset.rgsxkeydel) { await rgsxSaveKey(t.dataset.rgsxkeydel, true); return; }
+  if (t.dataset.rgsxretry !== undefined) { await rgsxRetrySystem(t.dataset.rgsxretry); return; }
   if (t.dataset.helpgo) { document.getElementById('help-' + t.dataset.helpgo)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
   if (t.dataset.sysTop) { S.config.topN.system = t.dataset.sysTop; S.tab = 'topn'; saveConfig(); render(); return; }
   if (t.dataset.upd) { const [src, k] = t.dataset.upd.split('|'); await refreshLists([k], [src]); return; }
