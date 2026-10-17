@@ -31,6 +31,13 @@ itch_script = (ROOT / "tools" / "itch-refresh.js").read_text(encoding="utf-8").r
 extract = (ROOT / "src" / "extract.js").read_text(encoding="utf-8")
 grabber = (ROOT / "tools" / "list-grabber.js").read_text(encoding="utf-8").replace("/*__EXTRACT__*/", extract)
 (ROOT / "dist" / "list-grabber.js").write_text(grabber, encoding="utf-8")
+# One-click RGSX batch downloader, embedded in the page and shipped beside it.
+runner_py = (ROOT / "tools" / "rgsx_batch_download.py").read_text(encoding="utf-8")
+runner_bat = (ROOT / "tools" / "download-with-rgsx.bat").read_text(encoding="utf-8")
+runner_sh = (ROOT / "tools" / "rgsx-download.sh").read_text(encoding="utf-8")
+(ROOT / "dist" / "rgsx_batch_download.py").write_text(runner_py, encoding="utf-8")
+(ROOT / "dist" / "Download with RGSX.bat").write_text(runner_bat.replace("\r\n", "\n").replace("\n", "\r\n"), encoding="utf-8")
+(ROOT / "dist" / "RGSX-download.sh").write_text(runner_sh.replace("\r\n", "\n"), encoding="utf-8", newline="\n")
 site_lists = {k: v for k, v in load("site-lists.json").items() if not k.startswith("_")}
 
 sqljs = (ROOT / "vendor" / "sql-wasm.js").read_text(encoding="utf-8")
@@ -51,6 +58,9 @@ parts = {
     "/*__ITCH__*/null": js(itch),
     "/*__ITCH_TAGS__*/{}": js(itch_tags),
     "/*__ITCH_SCRIPT__*/''": js(itch_script),
+    "/*__RUNNER_PY__*/''": js(runner_py),
+    "/*__RUNNER_BAT__*/''": js(runner_bat.replace("\r\n", "\n")),
+    "/*__RUNNER_SH__*/''": js(runner_sh.replace("\r\n", "\n")),
     "/*__WASM__*/": wasm,
     "/*__VERSION__*/": VERSION,
     "/*__APP__*/": (ROOT / "src" / "app.js").read_text(encoding="utf-8"),
@@ -70,6 +80,9 @@ zpath = ROOT / "dist" / "RGSX-Library-Checker.zip"
 with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
     folder = "RGSX Library Checker/"
     for name, data in [("rgsx-library-checker.html", out), ("START HERE.txt", start.replace("\n", "\r\n")),
+                       ("Download with RGSX.bat", runner_bat.replace("\r\n", "\n").replace("\n", "\r\n")),
+                       ("RGSX-download.sh", runner_sh.replace("\r\n", "\n")),
+                       ("rgsx_batch_download.py", runner_py),
                        ("extras/list-grabber.js", grabber), ("extras/itch-refresh.js", itch_script)]:
         info = zipfile.ZipInfo(folder + name, date_time=(2026, 1, 1, 0, 0, 0))
         info.compress_type = zipfile.ZIP_DEFLATED
