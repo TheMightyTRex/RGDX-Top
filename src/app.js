@@ -69,7 +69,7 @@ function defaultConfig() {
     paths: { appFolder: '', retrobatFolder: '', romsFolder: '', rgsxFolder: '' },
     topN: { source: 'wikidata', size: 100, system: '', show: 'all' },
     lang: 'en', library: { show: 'all' },
-    free: { mode: 'retro', system: '', genre: 'all', pcGenre: 'all', view: 'tile' },
+    free: { mode: 'retro', system: '', genre: 'all', pcGenre: 'all', view: 'tile', hhApi: '' },
     download: { regions: [], langs: [] },
     customLists: [], wishlist: {}, vault: { mode: 'device', items: {} }, updated: '',
   };
@@ -881,27 +881,33 @@ function viewTopN() {
   const wl = S.config.wishlist[c.system] || [];
   // Status filter: all, installed, missing, or missing but available in the RGSX catalogue.
   const items = r.items.filter(x => c.show === 'have' ? !!x.have : c.show === 'miss' ? !x.have : c.show === 'cat' ? !x.have && !!x.cat : true);
+  const tnPlat = S.catalog ? ([...r.folders, c.system, ...((SYSTEMS[c.system] || {}).aliases || [])].find(f => (S.catalog.platforms[f] || []).length) || r.folders[0] || c.system) : (r.folders[0] || c.system);
   const rows = items.map(x => {
     const k = norm(x.e.t), star = wl.includes(k);
+    const dl = !x.have && x.cat;
+    const pick = dl ? `<input type="checkbox" class="toppick" data-plat="${esc(tnPlat)}" data-name="${esc(x.cat[0].f)}" data-title="${esc(x.e.t)}" title="Select to download with RGSX"> ` : '';
     return `<tr class="${x.have ? 'have' : 'miss'}"><td class="num">${x.rank}</td><td><b translate="no">${esc(x.e.t)}</b>${x.e.y ? ` <span class="muted">(${x.e.y})</span>` : ''}${x.e.n ? `<br><small class="muted">${esc(x.e.n)}</small>` : ''}</td>
       <td>${x.have ? `<span class="tag ok">Installed</span> <small class="muted" translate="no">${esc(x.have[0].f)}${x.have.length > 1 ? ` +${x.have.length - 1}` : ''}</small>` : `<span class="tag no">Missing</span>${x.cat ? ` <span class="tag warn" title="${esc(x.cat[0].f)}" translate="no">${tr('In RGSX catalogue')}</span>` : ''}`}</td>
-      <td class="right"><button class="small" data-star="${esc(k)}" title="Wishlist">${star ? '★' : '☆'}</button></td></tr>`;
+      <td class="right">${pick}<button class="small" data-star="${esc(k)}" title="Wishlist">${star ? '★' : '☆'}</button></td></tr>`;
   }).join('');
   return controls + scanNote + `<div class="panel"><div class="row"><h2 style="margin:0"><span translate="no">${esc(SYSTEMS[c.system].label)}</span> · Top ${c.size}</h2>
     <span class="tag ok">${r.have} installed</span><span class="tag no">${r.items.length - r.have} missing</span>
     ${S.catalog ? `<span class="tag warn">${r.items.filter(x => !x.have && x.cat).length} of the missing are in the RGSX catalogue</span>` : ''}
     <div class="grow"></div><span class="muted">${r.list.origin === 'bundled' ? 'Bundled list from ' : r.list.origin === 'live' ? 'Updated ' : ''}${r.list.fetched ? D(r.list.fetched) : ''}${r.items.length < +c.size ? ` · source has ${r.items.length} games` : ''}</span></div>
+    ${S.catalog ? `<div class="row" style="margin-top:8px"><button class="small" data-act="topAll">Select all in catalogue</button><button class="small" data-act="topNone">Clear</button><button class="primary" data-act="topAddSel">Add selected ⤓</button><span class="muted">ticked games are added to the download list</span></div>` : ''}
     <table style="margin-top:8px"><thead><tr><th>#</th><th>Game</th><th>Status</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="empty">Nothing to show.</td></tr>'}</tbody></table>
     <p class="muted">Matching uses the names in your gamelist.xml and the file names, ignoring region tags, punctuation, "The" and roman numerals. A game can still be missed if its file is named very differently.</p></div>`;
 }
 
 /* ------------------------------------------------------------------ Homebrew Hub (gbdev) — live search */
-const HH_API = 'https://hh3.gbdev.io/api';
+const HH_API_DEFAULT = 'https://hh3.gbdev.io/api';
+// Homebrew Hub API root — override with your own instance (e.g. a deployed fork) in Settings.
+function hhBase() { return ((S.config.free && S.config.free.hhApi) || HH_API_DEFAULT).replace(/\/+$/, ''); }
 function hhPlatFolder(p) { return ({ GB: 'gb', GBC: 'gbc', GBA: 'gba' })[p] || 'gb'; }
 async function hhLoad(append) {
   const h = S.hh; if (!h) return;
   h.loading = true; h.error = ''; h.started = true; if (!append) { h.page = 1; h.items = []; } render();
-  const url = `${HH_API}/search?platform=${encodeURIComponent(h.plat)}&page=${h.page}&page_elements=10${h.q ? '&title=' + encodeURIComponent(h.q) : ''}`;
+  const url = `${hhBase()}/search?platform=${encodeURIComponent(h.plat)}&page=${h.page}&page_elements=10${h.q ? '&title=' + encodeURIComponent(h.q) : ''}`;
   try {
     const r = await fetch(url); if (!r.ok) throw new Error('HTTP ' + r.status);
     const j = await r.json();
@@ -913,7 +919,7 @@ async function hhLoad(append) {
 }
 function hhView(tiled) {
   const h = S.hh;
-  const asset = (slug, fn) => `${HH_API}/entry/${encodeURIComponent(slug)}/${encodeURIComponent(fn)}`;
+  const asset = (slug, fn) => `${hhBase()}/entry/${encodeURIComponent(slug)}/${encodeURIComponent(fn)}`;
   const card = e => {
     const slug = e.slug, title = esc(e.title || slug), dev = esc(e.developer || ''), tags = esc((e.tags || []).slice(0, 3).join(', '));
     const scr = (e.screenshots || [])[0], img = scr ? esc(asset(slug, scr)) : '';
@@ -939,7 +945,8 @@ function hhView(tiled) {
       <input type="search" id="hhSearch" placeholder="Search Homebrew Hub…" value="${esc(h.q || '')}" style="flex:1;min-width:200px">
       <button class="small" data-act="hhSearch">Search</button><div class="grow"></div>
       <a href="https://hh.gbdev.io" target="_blank" rel="noopener">Open Homebrew Hub ↗</a></div>
-    <p class="muted">Free Game Boy, Game Boy Color and Game Boy Advance homebrew from the <b>gbdev Homebrew Hub</b>, searched live. Click <b>Download ROM</b>, then save the file into <code>roms\\${hhPlatFolder(h.plat)}</code> and rescan in RetroBat. (NES homebrew lives in a separate database — ask and I can add it.)</p>
+    <p class="muted">Free Game Boy, Game Boy Color and Game Boy Advance homebrew from <b>Homebrew Hub</b>, searched live. Click <b>Download ROM</b>, then save the file into <code>roms\\${hhPlatFolder(h.plat)}</code> and rescan in RetroBat. (NES homebrew lives in a separate database — ask and I can add it.)</p>
+    <p class="muted">Source: <code translate="no">${esc(hhBase())}</code> ${S.config.free.hhApi ? '<span class="tag warn">your instance</span>' : '<span class="tag">public hh.gbdev.io</span>'} <button class="small" data-act="hhSetApi">Change…</button></p>
     ${results}</div>`;
 }
 function viewFree() {
@@ -1371,14 +1378,15 @@ function rgsxCatalogueView() {
   const rows = shown.map(n => {
     const have = idx ? findIn(idx, { t: n }) : null;
     const add = esc(JSON.stringify({ p: S.rgsxPlat, n }));
-    return `<tr><td><span translate="no">${esc(n)}</span> ${have ? '<span class="tag ok">Installed</span>' : ''}</td><td class="right"><button class="small" data-rgsxadd="${add}">Add ⤓</button></td></tr>`;
+    return `<tr><td style="width:28px"><input type="checkbox" class="catpick" value="${esc(n)}"></td><td><span translate="no">${esc(n)}</span> ${have ? '<span class="tag ok">Installed</span>' : ''}</td><td class="right"><button class="small" data-rgsxadd="${add}">Add ⤓</button></td></tr>`;
   }).join('');
   return `<div class="panel"><div class="row">
       <label>System / program <select id="rgsxPlat">${opts}</select></label>
       <input type="search" id="rgsxSearch" placeholder="Search this platform…" value="${esc(S.rgsxSearch || '')}" style="flex:1;min-width:200px">
       <div class="grow"></div><button class="small" data-act="rgsxGoList">View download list</button></div>
-    <p class="muted">Every platform in the RGSX catalogue — consoles, computers, Windows programs, ports and more. Search, then <b>Add ⤓</b> any item to the download list. ${q ? `${names.length} match "${esc(q)}"` : `${all.length.toLocaleString()} items`}${names.length > cap ? `, showing first ${cap} — narrow with search` : ''}.${ruleOn ? ` <span class="tag warn">${hidden.toLocaleString()} hidden by your region/language rules</span> <button class="small" data-setpage="downloads">Change</button>` : ''}</p>
-    <table><thead><tr><th>Game / program</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="2" class="empty">Nothing matches. Try a shorter search.</td></tr>'}</tbody></table></div>
+    <p class="muted">Every platform in the RGSX catalogue — consoles, computers, Windows programs, ports and more. Tick games and <b>Add selected</b> (or use a row's <b>Add ⤓</b>); everything in the download list gets fetched when you run the downloader. ${q ? `${names.length} match "${esc(q)}"` : `${all.length.toLocaleString()} items`}${names.length > cap ? `, showing first ${cap} — narrow with search` : ''}.${ruleOn ? ` <span class="tag warn">${hidden.toLocaleString()} hidden by your region/language rules</span> <button class="small" data-setpage="downloads">Change</button>` : ''}</p>
+    <div class="row" style="margin-bottom:8px"><button class="small" data-act="catAll">Select all shown</button><button class="small" data-act="catNone">Clear</button><button class="primary" data-act="catAddSel">Add selected ⤓</button></div>
+    <table><thead><tr><th></th><th>Game / program</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="3" class="empty">Nothing matches. Try a shorter search.</td></tr>'}</tbody></table></div>
   <div class="panel"><h3 style="margin-top:0">Keep your own list</h3>
     <p class="muted">Paste titles (one per line) to add to the download list for <b translate="no">${esc(label(S.rgsxPlat))}</b>. CSV uses the first column. The downloader matches each title to the catalogue when you run it — so this works for lists you keep by hand too. (You can also drop a <code>rgsx-download-list.txt</code> in your folder: one title per line, or <code>system | title</code>.)</p>
     <textarea id="rgsxPaste" placeholder="Sonic the Hedgehog&#10;Streets of Rage 2&#10;Gunstar Heroes"></textarea>
@@ -1387,15 +1395,16 @@ function rgsxCatalogueView() {
 function rgsxListView() {
   const list = (S.rgsx && S.rgsx.queue) || [];
   const rows = list.map(e => (e.type || 'game') === 'itch'
-    ? `<tr><td><span class="tag">itch.io</span> <span translate="no">Free homebrew: ${esc(e.system || '')}${e.tag ? ' / ' + esc(e.tag) : ''}</span></td><td class="muted">${esc(e.source || '')}</td></tr>`
-    : `<tr><td><span translate="no">${esc(e.title || e.name || '')}</span> <small class="muted" translate="no">${esc(e.platform || '')}</small></td><td class="muted">${esc(e.source || '')}</td></tr>`).join('');
+    ? `<tr><td style="width:28px"><input type="checkbox" class="qpick" data-key="${esc(rgsxKey(e))}"></td><td><span class="tag">itch.io</span> <span translate="no">Free homebrew: ${esc(e.system || '')}${e.tag ? ' / ' + esc(e.tag) : ''}</span></td><td class="muted">${esc(e.source || '')}</td></tr>`
+    : `<tr><td style="width:28px"><input type="checkbox" class="qpick" data-key="${esc(rgsxKey(e))}"></td><td><span translate="no">${esc(e.title || e.name || '')}</span> <small class="muted" translate="no">${esc(e.platform || '')}</small></td><td class="muted">${esc(e.source || '')}</td></tr>`).join('');
   const wlCount = Object.values(S.config.wishlist || {}).reduce((a, l) => a + ((l && l.length) || 0), 0);
   return `<div class="panel"><div class="row"><h2 style="margin:0">Download list</h2><div class="grow"></div>
       ${wlCount ? `<button class="small" data-act="sendWishlistToRgsx" title="Add every ☆ wishlist game that is missing and in the catalogue">Add ☆ wishlist (${wlCount})</button>` : ''}
       <button class="small" data-act="rgsxRefresh">Refresh</button>${list.length ? '<button class="small" data-act="clearRgsx">Clear list</button>' : ''}</div>
-    ${list.length ? `<table><thead><tr><th>Item</th><th>Added from</th></tr></thead><tbody>${rows}</tbody></table>
+    ${list.length ? `<div class="row" style="margin:4px 0 8px"><button class="small" data-act="qAll">Select all</button><button class="small" data-act="qNone">Clear</button><button class="small" data-act="qRemoveSel">Remove selected</button><span class="muted">everything in this list is downloaded when you run the downloader</span></div>
+      <table><thead><tr><th></th><th>Item</th><th>Added from</th></tr></thead><tbody>${rows}</tbody></table>
       <div class="notice info" style="margin-top:12px">To download these, go to your folder <b translate="no">${esc((S.handles.app || {}).name || '')}</b> and run <b>Download with RGSX.bat</b> (Windows) or <b>RGSX-download.sh</b> (Linux / macOS / Batocera / Knulli). Close RGSX first. Steps are in <code>${RGSX_HOWTO_NAME}</code>.</div>`
-      : '<div class="empty">The list is empty. Add games from Top lists (Send to RGSX) or the Catalogue tab (Add ⤓), or send free homebrew from Free games.</div>'}</div>`;
+      : '<div class="empty">The list is empty. Add games from Top lists (tick + Add selected) or the Catalogue tab, or send free homebrew from Free games.</div>'}</div>`;
 }
 function rgsxSourcesView() {
   const ks = (S.rgsx || {}).keys || {};
@@ -1741,6 +1750,44 @@ const actions = {
     if (S.rgsx) rgsxProbe();
     toastT('Added {n} title(s){plat} to the download list ({total} total). The downloader matches each to the catalogue when you run it.', { n: rows.length, plat: plat ? ' for ' + plat : '', total: res.total });
   },
+  // --- multi-select helpers (operate on the DOM checkboxes; no re-render until add/remove) ---
+  catAll: () => document.querySelectorAll('.catpick').forEach(b => b.checked = true),
+  catNone: () => document.querySelectorAll('.catpick').forEach(b => b.checked = false),
+  catAddSel: async () => {
+    const boxes = [...document.querySelectorAll('.catpick:checked')];
+    if (!boxes.length) return toast('Tick some games first.', 'warn');
+    if (!(S.handles.app && S.writable)) return toast('Your folder is read-only. Allow edit access in Settings › Folders.', 'warn');
+    const plat = S.rgsxPlat || '';
+    const rows = boxes.map(b => ({ type: 'game', platform: plat, name: b.value, title: b.value, source: 'catalogue' }));
+    let res; try { res = await rgsxWriteQueue(rows); } catch (e) { return toast('Could not write to the folder: ' + e.message, 'err'); }
+    if (S.rgsx) rgsxProbe();
+    toastT('Added {n} game(s) to the download list ({total} total).', { n: rows.length, total: res.total });
+  },
+  topAll: () => document.querySelectorAll('.toppick').forEach(b => b.checked = true),
+  topNone: () => document.querySelectorAll('.toppick').forEach(b => b.checked = false),
+  topAddSel: async () => {
+    const boxes = [...document.querySelectorAll('.toppick:checked')];
+    if (!boxes.length) return toast('Tick some games first (only missing games that RGSX has can be ticked).', 'warn');
+    if (!(S.handles.app && S.writable)) return toast('Your folder is read-only. Allow edit access in Settings › Folders.', 'warn');
+    const c = S.config.topN;
+    const rows = boxes.map(b => ({ type: 'game', platform: b.dataset.plat, name: b.dataset.name, title: b.dataset.title, system: c.system, source: c.source }));
+    let res; try { res = await rgsxWriteQueue(rows); } catch (e) { return toast('Could not write to the folder: ' + e.message, 'err'); }
+    if (S.rgsx) rgsxProbe();
+    toastT('Added {n} game(s) to the download list ({total} total). Run the downloader in your folder to fetch them.', { n: rows.length, total: res.total });
+  },
+  qAll: () => document.querySelectorAll('.qpick').forEach(b => b.checked = true),
+  qNone: () => document.querySelectorAll('.qpick').forEach(b => b.checked = false),
+  qRemoveSel: async () => {
+    const keys = new Set([...document.querySelectorAll('.qpick:checked')].map(b => b.dataset.key));
+    if (!keys.size) return toast('Tick items to remove first.', 'warn');
+    if (!(S.handles.app && S.writable)) return toast('Your folder is read-only.', 'warn');
+    const existing = (await readJSON(S.handles.app, RGSX_QUEUE_JSON)) || [];
+    const kept = existing.filter(e => !keys.has(rgsxKey(e)));
+    try { await writeText(S.handles.app, RGSX_QUEUE_JSON, JSON.stringify(kept, null, 2)); await writeText(S.handles.app, RGSX_QUEUE_CSV, rgsxQueueCsv(kept)); }
+    catch (e) { return toast('Could not update the list: ' + e.message, 'err'); }
+    toastT('Removed {n}. {total} left in the download list.', { n: existing.length - kept.length, total: kept.length });
+    await rgsxProbe();
+  },
   addList: () => {
     const name = $('#clName').value.trim() || 'My list'; const items = parseListText($('#clItems').value);
     if (!items.length) return toast('Paste at least one game title.', 'warn');
@@ -1754,6 +1801,17 @@ const actions = {
   freeList: () => { S.config.free.view = 'list'; saveConfig(); render(); },
   hhSearch: () => hhLoad(false),
   hhMore: () => { if (S.hh) { S.hh.page++; hhLoad(true); } },
+  hhSetApi: async () => {
+    const cur = S.config.free.hhApi || '';
+    const r = await dialog({ title: 'Homebrew Hub API', body: 'API root of your Homebrew Hub instance, e.g. https://yourhost/api (your deployed fork). Leave blank to use the public hh.gbdev.io API. The instance must allow cross-origin requests from this page.', fields: [{ id: 'url', label: 'API root URL', value: cur }], ok: 'Save' });
+    if (!r) return;
+    const u = (r.url || '').trim().replace(/\/+$/, '');
+    if (u && !/^https?:\/\//i.test(u)) return toast('Enter a full URL starting with http:// or https://', 'warn');
+    S.config.free.hhApi = u; saveConfig();
+    if (S.hh) S.hh.started = false;
+    toast(u ? 'Homebrew Hub source set to your instance.' : 'Using the public Homebrew Hub API.');
+    render();
+  },
   dlRegionsAll: () => { const c = (S.config.download ||= { regions: [], langs: [] }); c.regions = c.regions.length === DL_REGIONS.length ? [] : DL_REGIONS.map(x => x[0]); saveConfig(); rgsxWritePrefs(); render(); },
   dlLangsAll: () => { const c = (S.config.download ||= { regions: [], langs: [] }); c.langs = c.langs.length === DL_LANGS.length ? [] : DL_LANGS.map(x => x[0]); saveConfig(); rgsxWritePrefs(); render(); },
   forget: async () => { for (const k of ['app', 'retro', 'rgsx']) await idb.set(k, undefined); S.handles = { app: null, retro: null, rgsx: null }; S.dirs = { roms: null, rgsx: null }; S.scan = {}; S.catalog = null; S.folders = []; render(); },
