@@ -750,7 +750,7 @@ function render() {
   else if (!fsSupported) body = '';
   else if (!S.handles.app) body = connectPanel();
   else if (S.needsReconnect) body = `<div class="panel"><h2>Allow access again</h2><p>Your browser needs you to confirm folder access each time this page is opened. Last folder: <b>${esc(S.handles.app.name)}</b>.</p><div class="row"><button class="primary" data-act="reconnect">${T('Allow access to {folder}', { folder: S.handles.app.name })}</button><button data-act="pickApp">Choose a different folder</button></div></div>`;
-  else body = ({ library: viewLibrary, topn: viewTopN, free: viewFree, settings: viewSettings, help: viewHelp })[S.tab]();
+  else body = ({ library: viewLibrary, topn: viewTopN, rgsx: viewRgsx, free: viewFree, settings: viewSettings, help: viewHelp })[S.tab]();
   m.innerHTML = browserWarning() + notices + body;
   refreshIntroChecks();
   translateDom(m); translateDom(document.querySelector('header'));
@@ -837,6 +837,8 @@ function viewTopN() {
     <div class="grow"></div>
     ${c.source.startsWith('custom:') ? '' : `<button data-act="refreshLists">Update from the internet</button>`}
     ${c.system && c.system !== '*' ? `<button data-act="exportMissing">Export missing (CSV)</button>` : ''}
+    ${c.system && c.system !== '*' && S.catalog ? `<button class="primary" data-act="sendToRgsx" title="Queue the missing games RGSX can download, drop a one-click downloader in your folder, and show how to run it">Send to RGSX ⤓</button>` : ''}
+    ${c.system && c.system !== '*' && S.catalog ? `<button class="small" data-act="clearRgsx" title="Empty the RGSX download list">Clear list</button>` : ''}
     </div><p class="muted" style="margin:8px 0 0">${esc((SOURCE_INFO[c.source] || { about: 'A list you added in Settings.' }).about)}</p></div>`;
   const unscanned = systems.flatMap(foldersFor).filter(f => !S.scan[f]);
   const scanNote = unscanned.length ? `<div class="notice">${unscanned.length} folder(s) not scanned yet, so they show as missing. <button class="small" data-act="scanAll" ${S.scanning ? 'disabled' : ''}>Scan now</button></div>` : '';
@@ -905,7 +907,7 @@ function viewFree() {
     const more = tag ? `https://itch.io/games/top-rated/free/${c.genre === 'all' ? '' : 'genre-' + c.genre + '/'}tag-${tag}` : '';
     body = `<div class="panel"><div class="row">
       <label>System <select id="frSystem">${sysKeys.map(k => `<option translate="no" value="${k}" ${k === c.system ? 'selected' : ''}>${esc(SYSTEMS[k]?.label || k)}${foldersFor(k).length || S.folders.includes(k) ? '' : ' ' + tr('(no folder)')}</option>`).join('')}</select></label>
-      <label>Genre <select id="frGenre">${gopts}</select></label><div class="grow"></div>${more ? `<a href="${more}" target="_blank" rel="noopener">See more on itch.io ↗</a>` : ''}</div>
+      <label>Genre <select id="frGenre">${gopts}</select></label><div class="grow"></div>${more ? `<a href="${more}" target="_blank" rel="noopener">See more on itch.io ↗</a>` : ''}<button class="small" data-act="rgsxAddItch" title="Queue RGSX to install the free itch.io homebrew for this system">Send free homebrew to RGSX ⤓</button></div>
       <p class="muted">Homebrew tagged for this system on itch.io, filtered to free games without Windows, macOS, Linux or Android builds (those are usually PC games in a retro style). Check each page for the ROM file; save it into <code>roms\\${esc(foldersFor(c.system)[0] || c.system)}</code>.</p>
       <div class="cards">${(ids || []).map(i => card(i, c.system)).join('') || '<div class="empty">No games in this genre.</div>'}</div></div>`;
   } else {
@@ -1094,6 +1096,185 @@ function settingsSystem(k) {
   ${sites ? `<div class="panel"><h2>${T('Websites with {sys} lists', { sys: sys.label })}</h2><div class="cards">${sites}</div></div>` : ''}`;
 }
 
+/* ------------------------------------------------------------------ RGSX tab: check, catalogue, download list, sources */
+const RGSX_QUEUE_JSON = 'rgsx-download-queue.json';
+const RGSX_QUEUE_CSV = 'rgsx-download-queue.csv';
+const RGSX_HOWTO_NAME = 'HOW TO DOWNLOAD WITH RGSX.txt';
+const RGSX_HOWTO = `How to download your RGSX wishlist
+==================================
+
+The RGSX Library Checker saved a list of things to download:
+  ${RGSX_QUEUE_CSV}   (also ${RGSX_QUEUE_JSON})
+
+WINDOWS (RetroBat)
+  1. Close RGSX if it is open.
+  2. In this folder, double-click:  Download with RGSX.bat
+  3. A window lists what it matched and asks you to confirm. Press Y, Enter.
+
+LINUX / macOS / BATOCERA / KNULLI
+  Run, on the machine where RGSX is installed:  ./RGSX-download.sh
+  (first time: chmod +x RGSX-download.sh). On Batocera/Knulli you can run it
+  over SSH or add it as a Port.
+
+Preview without downloading:  add  --dry-run  (e.g.  "Download with RGSX.bat" --dry-run)
+
+The list can hold catalogue games (added from Top lists or the RGSX tab) and
+free itch.io homebrew jobs. When it finishes it writes a report and clears the
+list. It uses the same Python and catalogue as RGSX, needs no setup of its own,
+and never changes or deletes your existing ROMs.`;
+
+// RGSX stores each download-source key as a plain text file in saves/ports/rgsx.
+const RGSX_KEY_FILES = { '1fichier': '1FichierAPI.txt', itch: 'ItchioAPI.txt', realdebrid: 'RealDebridAPI.txt', alldebrid: 'AllDebridAPI.txt', debridlink: 'DebridLinkAPI.txt', torbox: 'TorBoxAPI.txt' };
+const RGSX_KEY_INFO = {
+  '1fichier': { name: '1fichier', about: 'Premium key for 1fichier-hosted games (fast direct downloads).', link: 'https://1fichier.com' },
+  itch: { name: 'itch.io', about: 'Free API key so RGSX can install itch.io homebrew.', link: 'https://itch.io/user/settings/api-keys' },
+  realdebrid: { name: 'Real-Debrid', about: 'Debrid service for premium links and some torrents.', link: 'https://real-debrid.com/apitoken' },
+  alldebrid: { name: 'AllDebrid', about: 'Debrid service for premium links.', link: 'https://alldebrid.com/apikeys' },
+  debridlink: { name: 'Debrid-Link', about: 'Debrid service for premium links.', link: 'https://debrid-link.com/webapp/apikey' },
+  torbox: { name: 'TorBox', about: 'Debrid / seedbox service.', link: 'https://torbox.app' },
+};
+
+async function dirPath(root, parts, create = false) { let d = root; for (const p of parts) d = await d.getDirectoryHandle(p, { create }); return d; }
+async function fileAt(root, parts) { try { const d = await dirPath(root, parts.slice(0, -1)); return await (await d.getFileHandle(parts[parts.length - 1])).getFile(); } catch { return null; } }
+
+function rgsxQueueCsv(list) {
+  const qv = s => '"' + String(s ?? '').replace(/"/g, '""') + '"';
+  return [['type', 'platform', 'name', 'title', 'year', 'system', 'tag', 'count', 'source'].join(',')]
+    .concat(list.map(e => [qv(e.type || 'game'), qv(e.platform), qv(e.name), qv(e.title), e.year || '', qv(e.system), qv(e.tag), e.count || '', qv(e.source)].join(','))).join('\r\n');
+}
+function rgsxKey(e) { return ((e.type || 'game') === 'itch') ? 'itch|' + (e.system || '') + '|' + (e.tag || '') : 'game|' + (e.platform || '') + '|' + (e.name || ''); }
+
+// Merge rows into the queue and (re)write the runner files beside the page. Returns {added,total}.
+async function rgsxWriteQueue(newRows) {
+  if (!(S.handles.app && S.writable)) throw new Error('the folder is read-only');
+  const existing = (await readJSON(S.handles.app, RGSX_QUEUE_JSON)) || [];
+  const seen = new Set(existing.map(e => rgsxKey(e).toLowerCase()));
+  let added = 0;
+  for (const row of newRows) { const k = rgsxKey(row).toLowerCase(); if (seen.has(k)) continue; seen.add(k); existing.push(row); added++; }
+  await writeText(S.handles.app, RGSX_QUEUE_JSON, JSON.stringify(existing, null, 2));
+  await writeText(S.handles.app, RGSX_QUEUE_CSV, rgsxQueueCsv(existing));
+  await writeText(S.handles.app, 'rgsx_batch_download.py', RUNNER_PY);
+  await writeText(S.handles.app, 'Download with RGSX.bat', RUNNER_BAT.replace(/\r?\n/g, '\r\n'));
+  await writeText(S.handles.app, 'RGSX-download.sh', RUNNER_SH.replace(/\r?\n/g, '\n'));
+  await writeText(S.handles.app, RGSX_HOWTO_NAME, RGSX_HOWTO.replace(/\r?\n/g, '\r\n'));
+  return { added, total: existing.length };
+}
+
+// Probe the folder for the download pipeline: runner files, queue, keys, python.
+async function rgsxProbe() {
+  const r = { runner: {}, keys: {}, queue: [], torrent: null, python: null, done: true };
+  const app = S.handles.app;
+  if (app) {
+    r.runner.py = !!(await tryFile(app, 'rgsx_batch_download.py'));
+    r.runner.bat = !!(await tryFile(app, 'Download with RGSX.bat'));
+    r.runner.sh = !!(await tryFile(app, 'RGSX-download.sh'));
+    r.queue = (await readJSON(app, RGSX_QUEUE_JSON)) || [];
+    r.python = !!(await fileAt(app, ['system', 'tools', 'Python', 'python.exe']));  // Windows bundle
+  }
+  const rg = S.dirs.rgsx;
+  if (rg) {
+    for (const [svc, fname] of Object.entries(RGSX_KEY_FILES)) {
+      const f = await tryFile(rg, fname); let v = '';
+      if (f) { try { v = (await f.text()).trim(); } catch { } }
+      r.keys[svc] = !!(f && v);
+    }
+    try { const s = await readJSON(rg, 'rgsx_settings.json'); r.torrent = !!(s && (s.enable_torrent || s.torrent || s.use_torrent || (s.qbittorrent && Object.keys(s.qbittorrent).length))); } catch { }
+  }
+  S.rgsx = r; render();
+}
+
+function rgsxChecks() {
+  const c = [], add = (status, title, detail = '', fix = '') => c.push({ status, title, detail, fix });
+  const p = S.rgsx || {};
+  add(ENV.ok ? 'ok' : 'err', 'Browser', ENV.ok ? [ENV.name, ENV.os].filter(Boolean).join(' on ') || 'Supported' : 'Can\'t open folders here.', ENV.ok ? '' : 'Use Chrome or Edge.');
+  add(S.writable ? 'ok' : 'warn', 'Folder access', S.writable ? 'This page can save files into its folder.' : 'Read-only.', S.writable ? '' : 'Choose the folder again and allow "Edit files". Without it the downloader can\'t be written here.');
+  const t = (S.install || {}).type;
+  add(t === 'retrobat' || t === 'batocera' ? 'ok' : t ? 'warn' : 'err', 'Installation', t ? (INSTALL_NAME[t] || t) : 'No roms folder found.', t === 'retrobat' || t === 'batocera' ? '' : 'Choose your RetroBat folder or Batocera/Knulli share in Settings › Folders.');
+  add((S.install || {}).rgsxApp ? 'ok' : 'warn', 'RGSX app', (S.install || {}).rgsxApp ? 'Installed (roms/ports/RGSX).' : 'Not found.', (S.install || {}).rgsxApp ? '' : 'Install RGSX from github.com/RetroGameSets/RGSX.');
+  if (p.python) add('ok', 'Python', 'RGSX\'s bundled Python was found (system/tools/Python).');
+  else add('info', 'Python', 'No Windows bundle found here.', 'On RetroBat, starting RGSX once installs it. On Linux/macOS/Batocera/Knulli the downloader uses the system python3 instead.');
+  if (!S.catalog) add('warn', 'RGSX catalogue', 'Not read yet.', 'Press Reload catalogue in Settings › Folders (close RGSX first).');
+  else { const age = S.catalog.dbModified ? Math.floor((Date.now() - S.catalog.dbModified) / 864e5) : null; add(age != null && age > 14 ? 'warn' : 'ok', 'RGSX catalogue', `${Object.values(S.catalog.counts).reduce((a, b) => a + b, 0).toLocaleString()} games` + (age == null ? '' : age === 0 ? ', updated today' : `, ${age} day(s) old`), age != null && age > 14 ? 'Start RGSX to refresh it, then Reload catalogue.' : ''); }
+  const rn = p.runner || {};
+  const have = ['py', 'bat', 'sh'].filter(k => rn[k]).length;
+  add(have ? 'ok' : 'info', 'Downloader files', have ? `In place (${[rn.py && 'rgsx_batch_download.py', rn.bat && 'Download with RGSX.bat', rn.sh && 'RGSX-download.sh'].filter(Boolean).join(', ')}).` : 'Not written yet.', have ? '' : 'They are written automatically the first time you add something to the download list.');
+  add((p.queue || []).length ? 'ok' : 'info', 'Download list', (p.queue || []).length ? `${p.queue.length} item(s) queued.` : 'Empty.', (p.queue || []).length ? 'Run "Download with RGSX.bat" (Windows) or "RGSX-download.sh" (Linux/mac/Batocera) in your folder.' : 'Add games from Top lists or the Catalogue tab.');
+  const ks = p.keys || {};
+  const set = Object.keys(RGSX_KEY_FILES).filter(k => ks[k]);
+  add('info', 'Download sources', set.length ? 'Keys set: ' + set.map(k => RGSX_KEY_INFO[k].name).join(', ') + '.' : 'No optional source keys set.', 'Most games download with no key. Add 1fichier / debrid / itch.io keys under Sources for those hosts.' + (p.torrent ? '' : ' Torrent platforms need qBittorrent (set up in RGSX).'));
+  return c;
+}
+function rgsxChecksTable() {
+  const icon = { ok: '✓', warn: '!', err: '✕', info: 'i' }, cls = { ok: 'ok', warn: 'warn', err: 'no', info: '' };
+  return '<table><tbody>' + rgsxChecks().map(x => `<tr><td><span class="tag ${cls[x.status]}" translate="no">${icon[x.status]}</span></td><td><b>${esc(x.title)}</b></td><td>${esc(x.detail)}${x.fix ? `<br><small class="muted">${esc(x.fix)}</small>` : ''}</td></tr>`).join('') + '</tbody></table>';
+}
+function rgsxCheckView() {
+  if (!S.rgsx) return `<div class="panel"><div class="empty">Checking…</div></div>`;
+  return `<div class="panel"><div class="row"><h2 style="margin:0">Is everything in place?</h2><div class="grow"></div><button class="small" data-act="rgsxRefresh">Check again</button></div>
+    <p class="muted">Checks the whole download pipeline: this folder, the RGSX app and catalogue, the one-click downloader, your download list and the optional source keys. Works for RetroBat on Windows and for a Batocera/Knulli share opened from Windows, macOS or Linux.</p>
+    ${rgsxChecksTable()}</div>`;
+}
+function rgsxCatalogueView() {
+  if (!S.catalog) return `<div class="panel"><div class="empty">The RGSX catalogue isn't loaded. Open Settings › Folders and press Reload catalogue (close RGSX first).</div></div>`;
+  const plats = Object.keys(S.catalog.platforms).sort((a, b) => ((S.catalog.sources[a] || [a])[0] || a).localeCompare((S.catalog.sources[b] || [b])[0] || b));
+  if (!S.rgsxPlat || !S.catalog.platforms[S.rgsxPlat]) S.rgsxPlat = plats[0];
+  const label = f => ((S.catalog.sources[f] || [])[0] || f);
+  const opts = plats.map(f => `<option value="${esc(f)}" ${f === S.rgsxPlat ? 'selected' : ''}>${esc(label(f))} — ${f} (${(S.catalog.counts[f] || 0).toLocaleString()})</option>`).join('');
+  const q = (S.rgsxSearch || '').trim().toLowerCase();
+  const all = S.catalog.platforms[S.rgsxPlat] || [];
+  const names = (q ? all.filter(n => n.toLowerCase().includes(q)) : all).slice().sort((a, b) => a.localeCompare(b));
+  const cap = 400; const shown = names.slice(0, cap);
+  const idx = localIndex(S.rgsxPlat);
+  const rows = shown.map(n => {
+    const have = idx ? findIn(idx, { t: n }) : null;
+    const add = esc(JSON.stringify({ p: S.rgsxPlat, n }));
+    return `<tr><td><span translate="no">${esc(n)}</span> ${have ? '<span class="tag ok">Installed</span>' : ''}</td><td class="right"><button class="small" data-rgsxadd="${add}">Add ⤓</button></td></tr>`;
+  }).join('');
+  return `<div class="panel"><div class="row">
+      <label>System / program <select id="rgsxPlat">${opts}</select></label>
+      <input type="search" id="rgsxSearch" placeholder="Search this platform…" value="${esc(S.rgsxSearch || '')}" style="flex:1;min-width:200px">
+      <div class="grow"></div><button class="small" data-act="rgsxGoList">View download list</button></div>
+    <p class="muted">Every platform in the RGSX catalogue — consoles, computers, Windows programs, ports and more. Search, then <b>Add ⤓</b> any item to the download list. ${q ? `${names.length} match "${esc(q)}"` : `${all.length.toLocaleString()} items`}${names.length > cap ? `, showing first ${cap} — narrow with search` : ''}.</p>
+    <table><thead><tr><th>Game / program</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="2" class="empty">Nothing matches. Try a shorter search.</td></tr>'}</tbody></table></div>
+  <div class="panel"><h3 style="margin-top:0">Keep your own list</h3>
+    <p class="muted">Paste titles (one per line) to add to the download list for <b translate="no">${esc(label(S.rgsxPlat))}</b>. CSV uses the first column. The downloader matches each title to the catalogue when you run it — so this works for lists you keep by hand too. (You can also drop a <code>rgsx-download-list.txt</code> in your folder: one title per line, or <code>system | title</code>.)</p>
+    <textarea id="rgsxPaste" placeholder="Sonic the Hedgehog&#10;Streets of Rage 2&#10;Gunstar Heroes"></textarea>
+    <div class="row"><button class="primary" data-act="rgsxAddPasted">Add these to the download list</button></div></div>`;
+}
+function rgsxListView() {
+  const list = (S.rgsx && S.rgsx.queue) || [];
+  const rows = list.map(e => (e.type || 'game') === 'itch'
+    ? `<tr><td><span class="tag">itch.io</span> <span translate="no">Free homebrew: ${esc(e.system || '')}${e.tag ? ' / ' + esc(e.tag) : ''}</span></td><td class="muted">${esc(e.source || '')}</td></tr>`
+    : `<tr><td><span translate="no">${esc(e.title || e.name || '')}</span> <small class="muted" translate="no">${esc(e.platform || '')}</small></td><td class="muted">${esc(e.source || '')}</td></tr>`).join('');
+  const wlCount = Object.values(S.config.wishlist || {}).reduce((a, l) => a + ((l && l.length) || 0), 0);
+  return `<div class="panel"><div class="row"><h2 style="margin:0">Download list</h2><div class="grow"></div>
+      ${wlCount ? `<button class="small" data-act="sendWishlistToRgsx" title="Add every ☆ wishlist game that is missing and in the catalogue">Add ☆ wishlist (${wlCount})</button>` : ''}
+      <button class="small" data-act="rgsxRefresh">Refresh</button>${list.length ? '<button class="small" data-act="clearRgsx">Clear list</button>' : ''}</div>
+    ${list.length ? `<table><thead><tr><th>Item</th><th>Added from</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="notice info" style="margin-top:12px">To download these, go to your folder <b translate="no">${esc((S.handles.app || {}).name || '')}</b> and run <b>Download with RGSX.bat</b> (Windows) or <b>RGSX-download.sh</b> (Linux / macOS / Batocera / Knulli). Close RGSX first. Steps are in <code>${RGSX_HOWTO_NAME}</code>.</div>`
+      : '<div class="empty">The list is empty. Add games from Top lists (Send to RGSX) or the Catalogue tab (Add ⤓), or send free homebrew from Free games.</div>'}</div>`;
+}
+function rgsxSourcesView() {
+  const ks = (S.rgsx || {}).keys || {};
+  const writable = S.handles.app && S.writable && S.dirs.rgsx;
+  const rows = Object.entries(RGSX_KEY_INFO).map(([svc, info]) => `<div class="panel"><div class="row"><h3 style="margin:0">${esc(info.name)}</h3> <span class="tag ${ks[svc] ? 'ok' : ''}">${ks[svc] ? 'Key saved' : 'Not set'}</span><div class="grow"></div><a href="${info.link}" target="_blank" rel="noopener">Get a key ↗</a></div>
+      <p class="muted">${esc(info.about)}</p>
+      <div class="row"><input type="password" id="rgsxkey_${svc}" placeholder="Paste ${esc(info.name)} API key" autocomplete="off" style="flex:1;min-width:220px" ${writable ? '' : 'disabled'}>
+        <button class="primary" data-rgsxkey="${svc}" ${writable ? '' : 'disabled'}>Save</button>${ks[svc] ? `<button data-rgsxkeydel="${svc}" ${writable ? '' : 'disabled'}>Remove</button>` : ''}</div></div>`).join('');
+  return `<div class="panel"><h2>Download sources</h2>
+    <p class="muted">Most games download directly with no key. These optional keys unlock extra hosts, and are saved as the plain text files RGSX reads in <code>saves\\ports\\rgsx</code>. ${writable ? '' : '<b>Allow edit access to your folder (Settings › Folders) to set them here.</b>'}</p>
+    <div class="notice info"><b>Torrent platforms</b> (e.g. "Xbox 360 (Torrent)") download through qBittorrent. RGSX sets that up for you — start RGSX once and pick a torrent source. Status detected here: ${(S.rgsx || {}).torrent ? '<span class="tag ok">torrent settings found</span>' : '<span class="tag">not detected</span>'}.</div></div>
+    ${rows}`;
+}
+function viewRgsx() {
+  const page = S.rgsxPage || 'check';
+  const tab = (id, label) => `<button class="${page === id ? 'primary' : ''}" data-rgsxpage="${id}">${label}</button>`;
+  const nav = `<div class="panel"><div class="row">${tab('check', 'Check')}${tab('catalogue', 'Catalogue')}${tab('list', 'Download list')}${tab('sources', 'Sources')}
+    <div class="grow"></div><span class="muted">Queue games for RGSX to download, then run the one-click downloader in your folder.</span></div></div>`;
+  const body = ({ check: rgsxCheckView, catalogue: rgsxCatalogueView, list: rgsxListView, sources: rgsxSourcesView })[page]();
+  return nav + body;
+}
+
 /* ------------------------------------------------------------------ help */
 function viewHelp() {
   const sec = (id, title, html) => `<div class="panel" id="help-${id}"><h2>${title}</h2>${html}</div>`;
@@ -1126,7 +1307,10 @@ function viewHelp() {
   ${sec('rgsx', 'The RGSX catalogue', `<p>The page reads the game catalogue that RGSX keeps (<code>saves\\ports\\rgsx\\rgsx.sqlite3</code>) to show which missing games RGSX can download. It never changes it, and it can't download the catalogue itself: the catalogue server only answers RGSX.</p>
     <ol><li>Start RGSX (RetroBat: <b>Ports</b> or <b>Windows</b> › <b>RGSX Retrobat</b>; Batocera: <b>Ports</b>). It updates the catalogue each time it starts.</li>
     <li>For a complete refresh: RGSX menu (Start, or Esc) › <b>Games</b> › <b>Refresh game catalog</b>.</li>
-    <li>Close RGSX, then press <b>Reload catalogue</b> in <b>Settings › Folders</b>, which also shows how old the catalogue is.</li></ol>`)}
+    <li>Close RGSX, then press <b>Reload catalogue</b> in <b>Settings › Folders</b>, which also shows how old the catalogue is.</li></ol>
+    <h3>Downloading with RGSX</h3>
+    <p>This page can hand a whole list of games to RGSX to download. Build the list in two places: on a system's <b>Top list</b>, <b>Send to RGSX ⤓</b> queues every missing game the catalogue has; and on the new <b>RGSX</b> tab, the <b>Catalogue</b> browser lets you search <i>any</i> of RGSX's platforms — consoles, computers, Windows programs, ports — and <b>Add ⤓</b> individual items. The <b>Free games</b> tab can also queue free itch.io homebrew for a system. Everything lands in one list.</p>
+    <p>Adding anything drops a one-click downloader into this page's folder: <code>Download with RGSX.bat</code> (Windows), <code>RGSX-download.sh</code> (Linux / macOS / Batocera / Knulli), <code>rgsx_batch_download.py</code> and a plain-text <code>HOW TO DOWNLOAD WITH RGSX.txt</code>. On the machine where RGSX is installed, run the <code>.bat</code> or <code>.sh</code> (close RGSX first). It matches each item in the catalogue, asks you to confirm, and hands them to RGSX to download into the right folders. The <b>RGSX › Check</b> tab tests that everything is in place; <b>RGSX › Sources</b> lets you add optional 1fichier / debrid / itch.io keys (torrent platforms use qBittorrent, which RGSX sets up). The downloader uses the same Python and catalogue as RGSX, needs no setup of its own, and never changes or deletes your ROMs. Anyone you give the page to gets the same flow.</p>`)}
   ${sec('sources', 'Top list sources', `<table><tbody>${Object.values(SOURCE_INFO).map(v => `<tr><td><b>${esc(v.name)}</b></td><td class="muted">${esc(v.about)}</td></tr>`).join('')}</tbody></table>
     <p class="muted">Built-in lists are bundled, so they work offline. <b>Update</b> (Top lists, or Settings › a system) fetches fresh copies. Some sources only cover some systems; the source menu shows how many games each has for the chosen system.</p>`)}
   ${sec('web', 'Lists from websites', `<p>Community sites such as Lemon Amiga, Lemon64, Spectrum Computing, Atarimania, Generation MSX and MobyGames keep their own top lists. To use one:</p>
@@ -1262,6 +1446,78 @@ const actions = {
     const lines = [['Rank', 'Title', 'Year', 'In RGSX catalogue'].join(',')].concat(r.items.filter(x => !x.have).map(x => [x.rank, q(x.e.t), x.e.y || '', x.cat ? q(x.cat[0].f) : ''].join(',')));
     download(`missing-${c.system}-top${c.size}-${c.source.replace(/\W/g, '')}.csv`, lines.join('\r\n'));
   },
+  // Queue the missing-but-available games and drop a one-click downloader in the folder.
+  sendToRgsx: async () => {
+    const c = S.config.topN; const r = compareSystem(c.system, c.source, +c.size); if (!r) return;
+    if (!S.catalog) return toast('Load the RGSX catalogue first (Settings › Folders).', 'warn');
+    const dl = r.items.filter(x => !x.have && x.cat);
+    if (!dl.length) return toast('None of the missing games from this list are in the RGSX catalogue.', 'warn');
+    const cand = [...r.folders, c.system, ...((SYSTEMS[c.system] || {}).aliases || [])];
+    const plat = cand.find(f => (S.catalog.platforms[f] || []).length) || r.folders[0] || c.system;
+    const rows = dl.map(x => ({ type: 'game', platform: plat, name: x.cat[0].f, title: x.e.t, year: x.e.y || '', system: c.system, source: c.source }));
+    if (!(S.handles.app && S.writable)) {
+      download('rgsx-download-queue.csv', rgsxQueueCsv(rows));
+      return toast('Your folder is read-only, so the list went to Downloads. Allow edit access (Settings › Folders), or move the file next to this page, then run “Download with RGSX”.', 'warn');
+    }
+    let res; try { res = await rgsxWriteQueue(rows); } catch (e) { return toast('Could not write to the folder: ' + e.message, 'err'); }
+    if (S.rgsx) rgsxProbe();
+    await dialog({
+      title: 'Download list ready',
+      body: `Added ${res.added} game(s); ${res.total} now queued. In your folder "${S.handles.app.name}", run "Download with RGSX.bat" (Windows) or "RGSX-download.sh" (Linux / macOS / Batocera / Knulli) to fetch them through RGSX — close RGSX first. Full steps are in "${RGSX_HOWTO_NAME}". You can add more from the RGSX tab.`,
+      ok: 'Got it', cancel: 'Close'
+    });
+  },
+  rgsxRefresh: () => { rgsxProbe(); },
+  rgsxGoList: () => { S.rgsxPage = 'list'; render(); window.scrollTo(0, 0); },
+  rgsxAddItch: async () => {
+    const c = S.config.free; const sys = c.system; if (!sys) return toast('Choose a system on the Free games tab first.', 'warn');
+    if (!(S.handles.app && S.writable)) return toast('Your folder is read-only. Allow edit access in Settings › Folders.', 'warn');
+    const tag = (ITCH_TAGS[sys] || [])[0] || '';
+    const row = { type: 'itch', system: sys, tag, count: 25, title: 'Free homebrew: ' + (SYSTEMS[sys]?.label || sys), source: 'itch.io' };
+    let res; try { res = await rgsxWriteQueue([row]); } catch (e) { return toast('Could not write to the folder: ' + e.message, 'err'); }
+    if (S.rgsx) rgsxProbe();
+    toastT('Queued free {sys} homebrew for RGSX ({total} in the list). Run the downloader in your folder; it needs an itch.io key (RGSX tab › Sources).', { sys: SYSTEMS[sys]?.label || sys, total: res.total });
+  },
+  clearRgsx: async () => {
+    if (!(S.handles.app && S.writable)) return toast('The folder is read-only, so there is nothing to clear here.', 'warn');
+    let removed = false;
+    for (const n of ['rgsx-download-queue.json', 'rgsx-download-queue.csv']) { try { await S.handles.app.removeEntry(n); removed = true; } catch { } }
+    toast(removed ? 'RGSX download list cleared.' : 'No download list to clear.');
+  },
+  // Add every starred (☆) wishlist game that is missing and in the catalogue.
+  sendWishlistToRgsx: async () => {
+    if (!S.catalog) return toast('Load the RGSX catalogue first (Settings › Folders).', 'warn');
+    if (!(S.handles.app && S.writable)) return toast('Your folder is read-only. Allow edit access in Settings › Folders.', 'warn');
+    const wl = S.config.wishlist || {};
+    const systems = Object.keys(wl).filter(k => (wl[k] || []).length);
+    if (!systems.length) return toast('Your wishlist is empty. Star games (☆) on the Top lists tab first.', 'warn');
+    const rows = []; let unresolved = 0;
+    for (const k of systems) {
+      const want = new Set(wl[k]); const found = new Set();
+      const cand = [...foldersFor(k), k, ...((SYSTEMS[k] || {}).aliases || [])];
+      const plat = cand.find(f => (S.catalog.platforms[f] || []).length) || foldersFor(k)[0] || k;
+      for (const src of [S.config.topN.source, 'wikidata', 'blend']) {
+        const r = compareSystem(k, src, 500); if (!r) continue;
+        for (const x of r.items) { const key = norm(x.e.t); if (want.has(key) && !found.has(key) && !x.have && x.cat) { rows.push({ type: 'game', platform: plat, name: x.cat[0].f, title: x.e.t, year: x.e.y || '', system: k, source: 'wishlist' }); found.add(key); } }
+      }
+      unresolved += [...want].filter(key => !found.has(key)).length;
+    }
+    if (!rows.length) return toast('None of your wishlisted games are both missing and in the RGSX catalogue right now.', 'warn');
+    let res; try { res = await rgsxWriteQueue(rows); } catch (e) { return toast('Could not write to the folder: ' + e.message, 'err'); }
+    if (S.rgsx) rgsxProbe();
+    toastT('Added {n} wishlisted game(s) to the download list ({total} total).{extra}', { n: rows.length, total: res.total, extra: unresolved ? ` ${unresolved} not added (already installed, or not in the catalogue).` : '' });
+  },
+  // Add a pasted plain list of titles for the currently selected catalogue platform.
+  rgsxAddPasted: async () => {
+    const el = $('#rgsxPaste'); const titles = parseListText(el ? el.value : '').filter(Boolean);
+    if (!titles.length) return toast('Paste at least one title.', 'warn');
+    if (!(S.handles.app && S.writable)) return toast('Your folder is read-only. Allow edit access in Settings › Folders.', 'warn');
+    const plat = S.rgsxPlat || '';
+    const rows = titles.map(t => ({ type: 'game', platform: plat, name: t, title: t, source: 'pasted' }));
+    let res; try { res = await rgsxWriteQueue(rows); } catch (e) { return toast('Could not write to the folder: ' + e.message, 'err'); }
+    if (S.rgsx) rgsxProbe();
+    toastT('Added {n} title(s){plat} to the download list ({total} total). The downloader matches each to the catalogue when you run it.', { n: rows.length, plat: plat ? ' for ' + plat : '', total: res.total });
+  },
   addList: () => {
     const name = $('#clName').value.trim() || 'My list'; const items = parseListText($('#clItems').value);
     if (!items.length) return toast('Paste at least one game title.', 'warn');
@@ -1306,12 +1562,30 @@ async function saveKey(id) {
   if (await Vault.set(id, v)) toastT('{svc} key saved (encrypted).', { svc: SERVICES[id].name });
   render();
 }
+// Write (or remove) an RGSX download-source key file in saves/ports/rgsx, using the folder's edit access.
+async function rgsxSaveKey(svc, del = false) {
+  const fname = RGSX_KEY_FILES[svc]; if (!fname) return;
+  if (!(S.handles.app && S.writable && S.dirs.rgsx)) return toast('Allow edit access to your folder (Settings › Folders) first.', 'warn');
+  let val = '';
+  if (!del) { const el = $('#rgsxkey_' + svc); val = (el && el.value || '').trim(); if (!val) return toast('Paste the key first.', 'warn'); }
+  try {
+    const dir = await dirPath(S.handles.app, ['saves', 'ports', 'rgsx'], true);
+    if (del) { try { await dir.removeEntry(fname); } catch { } }
+    else await writeText(dir, fname, val);
+  } catch (e) { return toast('Could not save the key: ' + e.message, 'err'); }
+  toast(del ? RGSX_KEY_INFO[svc].name + ' key removed.' : RGSX_KEY_INFO[svc].name + ' key saved.');
+  await rgsxProbe();
+}
 document.addEventListener('click', async e => {
   const t = e.target.closest('[data-act],[data-sel],[data-sys],[data-star],[data-dellist],[data-tab],[data-setpage],[data-upd],[data-webfill],[data-savekey],[data-testkey],[data-delkey],[data-helpgo],[data-sys-top],[data-bookmarklet]'); if (!t) return;
   if (t.dataset.bookmarklet !== undefined) { e.preventDefault(); toast('Drag this link to your bookmarks bar, then click it on a page with a list.'); return; }
-  if (t.dataset.tab) { S.tab = t.dataset.tab; render(); window.scrollTo(0, 0); return; }
+  if (t.dataset.tab) { S.tab = t.dataset.tab; render(); window.scrollTo(0, 0); if (S.tab === 'rgsx') rgsxProbe(); return; }
   if (t.dataset.act) { actions[t.dataset.act]?.(); return; }
   if (t.dataset.setpage) { S.setPage = t.dataset.setpage; S.tab = 'settings'; render(); window.scrollTo(0, 0); return; }
+  if (t.dataset.rgsxpage) { S.rgsxPage = t.dataset.rgsxpage; S.tab = 'rgsx'; render(); window.scrollTo(0, 0); return; }
+  if (t.dataset.rgsxadd) { const v = JSON.parse(t.dataset.rgsxadd); try { const res = await rgsxWriteQueue([{ type: 'game', platform: v.p, name: v.n, title: v.n, source: 'catalogue' }]); toastT('Added “{n}”. {total} in the download list.', { n: v.n, total: res.total }); if (S.rgsx) rgsxProbe(); } catch (err) { toast('Could not add: ' + err.message, 'err'); } return; }
+  if (t.dataset.rgsxkey) { await rgsxSaveKey(t.dataset.rgsxkey); return; }
+  if (t.dataset.rgsxkeydel) { await rgsxSaveKey(t.dataset.rgsxkeydel, true); return; }
   if (t.dataset.helpgo) { document.getElementById('help-' + t.dataset.helpgo)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
   if (t.dataset.sysTop) { S.config.topN.system = t.dataset.sysTop; S.tab = 'topn'; saveConfig(); render(); return; }
   if (t.dataset.upd) { const [src, k] = t.dataset.upd.split('|'); await refreshLists([k], [src]); return; }
@@ -1338,6 +1612,8 @@ document.addEventListener('change', async e => {
   else if (t.id === 'frSystem') { c.free.system = t.value; c.free.genre = 'all'; }
   else if (t.id === 'frGenre') c.free.genre = t.value;
   else if (t.id === 'pcGenre') c.free.pcGenre = t.value;
+  else if (t.id === 'rgsxPlat') { S.rgsxPlat = t.value; S.rgsxSearch = ''; render(); return; }
+  else if (t.id === 'rgsxSearch') { S.rgsxSearch = t.value; render(); return; }
   else if (t.name === 'vaultMode') { await Vault.setMode(t.value); render(); return; }
   else if (t.id === 'optIntro') { c.showGettingStarted = t.checked; ls.set('rlc.hideIntro', t.checked ? null : '1'); }
   else if (t.id === 'clFile' && t.files[0]) { const f = t.files[0]; $('#clItems').value = parseListText(await f.text(), f.name).join('\n'); if (!$('#clName').value) $('#clName').value = f.name.replace(/\.\w+$/, ''); return; }
