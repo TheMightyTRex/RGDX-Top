@@ -1507,22 +1507,76 @@ function viewTopN() {
     <p class="muted">Matching uses the names in your gamelist.xml and the file names, ignoring region tags, punctuation, "The" and roman numerals. A game can still be missed if its file is named very differently.</p></div>`;
 }
 
+/* ------------------------------------------------------------------ Homebrew Hub (gbdev) — live search */
+const HH_API = 'https://hh3.gbdev.io/api';
+function hhPlatFolder(p) { return ({ GB: 'gb', GBC: 'gbc', GBA: 'gba' })[p] || 'gb'; }
+async function hhLoad(append) {
+  const h = S.hh; if (!h) return;
+  h.loading = true; h.error = ''; h.started = true; if (!append) { h.page = 1; h.items = []; } render();
+  const url = `${HH_API}/search?platform=${encodeURIComponent(h.plat)}&page=${h.page}&page_elements=10${h.q ? '&title=' + encodeURIComponent(h.q) : ''}`;
+  try {
+    const r = await fetch(url); if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    const res = Array.isArray(j.entries) ? j.entries : (Array.isArray(j.results) ? j.results : []);
+    h.items = append ? h.items.concat(res) : res;
+    h.total = j.page_total || 1;
+  } catch (e) { h.error = e.message || String(e); }
+  h.loading = false; render();
+}
+function hhView(tiled) {
+  const h = S.hh;
+  const asset = (slug, fn) => `${HH_API}/entry/${encodeURIComponent(slug)}/${encodeURIComponent(fn)}`;
+  const card = e => {
+    const slug = e.slug, title = esc(e.title || slug), dev = esc(e.developer || ''), tags = esc((e.tags || []).slice(0, 3).join(', '));
+    const scr = (e.screenshots || [])[0], img = scr ? esc(asset(slug, scr)) : '';
+    const file = (e.files || []).find(f => f.default) || (e.files || []).find(f => f.playable) || (e.files || [])[0];
+    const dl = file ? esc(asset(slug, file.filename)) : '';
+    const hub = esc('https://hh.gbdev.io/entry/' + encodeURIComponent(slug));
+    const meta = dev + (tags ? ' · ' + tags : '');
+    const dlbtn = dl ? `<a class="tag warn" href="${dl}" download title="Download the ROM, then save it into roms\\${hhPlatFolder(h.plat)}">Download ROM ⤓</a>` : '';
+    if (!tiled) {
+      return `<div class="frow">${img ? `<a href="${hub}" target="_blank" rel="noopener"><img class="fthumb" src="${img}" loading="lazy" alt=""></a>` : '<span class="fthumb"></span>'}
+        <div class="fmeta"><b translate="no"><a href="${hub}" target="_blank" rel="noopener">${title}</a></b> <div class="muted fdesc" translate="no">${meta}</div></div>
+        <div class="fplats">${dlbtn}</div></div>`;
+    }
+    return `<div class="card">${img ? `<a href="${hub}" target="_blank" rel="noopener"><img class="fcover" src="${img}" loading="lazy" alt=""></a>` : ''}<b translate="no"><a href="${hub}" target="_blank" rel="noopener">${title}</a></b>
+      <p translate="no">${meta}</p><div style="margin-top:6px">${dlbtn} <span class="tag">${esc(h.plat)}</span></div></div>`;
+  };
+  const results = (h.loading && !h.items.length) ? '<div class="empty">Searching Homebrew Hub…</div>'
+    : h.error ? `<div class="notice err">Couldn't reach Homebrew Hub (${esc(h.error)}). Your browser may be blocking the request; you can open <a href="https://hh.gbdev.io" target="_blank" rel="noopener">hh.gbdev.io</a> directly. <button class="small" data-act="hhSearch">Retry</button></div>`
+    : !h.items.length ? '<div class="empty">No results. Try another search or platform.</div>'
+    : `<div class="${tiled ? 'cards' : 'flist'}">${h.items.map(card).join('')}</div>${h.page < h.total ? `<div class="row" style="margin-top:12px"><button data-act="hhMore" ${h.loading ? 'disabled' : ''}>${h.loading ? 'Loading…' : `Load more (page ${h.page} of ${h.total})`}</button></div>` : ''}`;
+  return `<div class="panel"><div class="row">
+      <label>Platform <select id="hhPlat">${['GB', 'GBC', 'GBA'].map(p => `<option ${p === h.plat ? 'selected' : ''}>${p}</option>`).join('')}</select></label>
+      <input type="search" id="hhSearch" placeholder="Search Homebrew Hub…" value="${esc(h.q || '')}" style="flex:1;min-width:200px">
+      <button class="small" data-act="hhSearch">Search</button><div class="grow"></div>
+      <a href="https://hh.gbdev.io" target="_blank" rel="noopener">Open Homebrew Hub ↗</a></div>
+    <p class="muted">Free Game Boy, Game Boy Color and Game Boy Advance homebrew from the <b>gbdev Homebrew Hub</b>, searched live. Click <b>Download ROM</b>, then save the file into <code>roms\\${hhPlatFolder(h.plat)}</code> and rescan in RetroBat. (NES homebrew lives in a separate database — ask and I can add it.)</p>
+    ${results}</div>`;
+}
 function viewFree() {
   const d = itchData(); const c = S.config.free;
   if (!d) return `<div class="panel"><div class="empty">No itch.io data.</div></div>`;
   const G = d.games;
-  const mode = c.mode === 'pc' ? 'pc' : 'retro';
+  const mode = c.mode === 'pc' ? 'pc' : c.mode === 'hh' ? 'hh' : 'retro';
   const sysKeys = Object.keys(d.sys).sort((a, b) => (SYSTEMS[a]?.label || a).localeCompare(SYSTEMS[b]?.label || b));
   if (!c.system || !d.sys[c.system]) c.system = sysKeys.find(k => foldersFor(k).length || S.folders.includes(k)) || sysKeys[0];
   const tiled = c.view !== 'list';
   const hasImgs = G.some(g => g && g[4]);
+  const srcNote = mode === 'hh' ? 'Homebrew Hub · live from hh.gbdev.io' : `itch.io top-rated free · ${d === ITCH_BUNDLED ? 'bundled' : 'updated'} ${D(d.fetched)}`;
   const head = `<div class="panel"><div class="row">
-    <label><input type="radio" name="fmode" value="retro" ${mode === 'retro' ? 'checked' : ''}> Retro homebrew (ROMs for your systems)</label>
-    <label><input type="radio" name="fmode" value="pc" ${mode === 'pc' ? 'checked' : ''}> PC &amp; browser games</label>
+    <label><input type="radio" name="fmode" value="retro" ${mode === 'retro' ? 'checked' : ''}> Retro homebrew (itch.io)</label>
+    <label><input type="radio" name="fmode" value="hh" ${mode === 'hh' ? 'checked' : ''}> Homebrew Hub (GB/GBC/GBA)</label>
+    <label><input type="radio" name="fmode" value="pc" ${mode === 'pc' ? 'checked' : ''}> PC &amp; browser</label>
     <div class="grow"></div>
     <div class="row" style="gap:4px"><button class="small ${tiled ? 'primary' : ''}" data-act="freeTile" title="Tile view">▦ Tiles</button><button class="small ${!tiled ? 'primary' : ''}" data-act="freeList" title="List view">☰ List</button></div>
-    <span class="muted">itch.io top-rated free · ${d === ITCH_BUNDLED ? 'bundled' : 'updated'} ${D(d.fetched)}</span></div>
-    ${!hasImgs ? `<p class="muted" style="margin:8px 0 0">No screenshots in this data. Refresh the list in <b>Settings › itch.io data</b> to pull in cover images.</p>` : ''}</div>`;
+    <span class="muted">${srcNote}</span></div>
+    ${mode !== 'hh' && !hasImgs ? `<p class="muted" style="margin:8px 0 0">No screenshots in this data. Refresh the list in <b>Settings › itch.io data</b> to pull in cover images.</p>` : ''}</div>`;
+  if (mode === 'hh') {
+    const h = (S.hh ||= { plat: 'GB', q: '', items: [], page: 1, total: 1, loading: false, error: '', started: false });
+    if (!h.started && !h.loading) setTimeout(() => hhLoad(false), 0);
+    return head + hhView(tiled);
+  }
   let body = '';
   const wrap = items => `<div class="${tiled ? 'cards' : 'flist'}">${items || '<div class="empty">Nothing to show.</div>'}</div>`;
   const card = (i, sysKey) => {
@@ -2310,6 +2364,8 @@ const actions = {
   dropItch: async () => { S.itch = null; await cacheWrite('itch-free.json', null); render(); },
   freeTile: () => { S.config.free.view = 'tile'; saveConfig(); render(); },
   freeList: () => { S.config.free.view = 'list'; saveConfig(); render(); },
+  hhSearch: () => hhLoad(false),
+  hhMore: () => { if (S.hh) { S.hh.page++; hhLoad(true); } },
   dlRegionsAll: () => { const c = (S.config.download ||= { regions: [], langs: [] }); c.regions = c.regions.length === DL_REGIONS.length ? [] : DL_REGIONS.map(x => x[0]); saveConfig(); rgsxWritePrefs(); render(); },
   dlLangsAll: () => { const c = (S.config.download ||= { regions: [], langs: [] }); c.langs = c.langs.length === DL_LANGS.length ? [] : DL_LANGS.map(x => x[0]); saveConfig(); rgsxWritePrefs(); render(); },
   forget: async () => { for (const k of ['app', 'retro', 'rgsx']) await idb.set(k, undefined); S.handles = { app: null, retro: null, rgsx: null }; S.dirs = { roms: null, rgsx: null }; S.scan = {}; S.catalog = null; S.folders = []; render(); },
@@ -2399,6 +2455,8 @@ document.addEventListener('change', async e => {
   else if (t.id === 'tnShow') c.topN.show = t.value;
   else if (t.id === 'sysShow') c.library.show = t.value;
   else if (t.name === 'fmode') c.free.mode = t.value;
+  else if (t.id === 'hhPlat') { (S.hh ||= { plat: 'GB', q: '', items: [], page: 1, total: 1 }).plat = t.value; hhLoad(false); return; }
+  else if (t.id === 'hhSearch') { (S.hh ||= { plat: 'GB', q: '', items: [], page: 1, total: 1 }).q = t.value; hhLoad(false); return; }
   else if (t.id === 'frSystem') { c.free.system = t.value; c.free.genre = 'all'; }
   else if (t.id === 'frGenre') c.free.genre = t.value;
   else if (t.id === 'pcGenre') c.free.pcGenre = t.value;
