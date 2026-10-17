@@ -233,6 +233,13 @@ def resolve(row, by_folder, regions=(), langs=()):
 KNOWN_COLS = {"type", "platform", "name", "title", "system", "tag", "count", "source", "year"}
 
 
+def row_key(row):
+    """Stable key for a queue/failed row, matching the web page's rgsxKey()."""
+    if (row.get("type") or "game").strip().lower() == "itch":
+        return "itch|%s|%s" % (str(row.get("system") or "").lower(), str(row.get("tag") or "").lower())
+    return "game|%s|%s" % (str(row.get("platform") or "").lower(), str(row.get("name") or row.get("title") or "").lower())
+
+
 def read_queue(path):
     import io
     text = open(path, "r", encoding="utf-8-sig").read()
@@ -286,6 +293,8 @@ def main(argv=None):
     ap.add_argument("--root")
     ap.add_argument("--region", help="Region rule(s), comma-separated: uk,eu,us,jp,world (overrides the saved rules)")
     ap.add_argument("--lang", help="Language rule(s), comma-separated: en,fr,es,de,nl,ja,... (overrides the saved rules)")
+    ap.add_argument("--retry", action="store_true", help="Also attempt items that failed before (ignore the failed list)")
+    ap.add_argument("--retry-system", dest="retry_system", help="Attempt previously-failed items for this system/folder again, e.g. snes")
     args = ap.parse_args(argv)
 
     root = find_root(args.root)
@@ -351,14 +360,29 @@ def main(argv=None):
     log("  Catalogue: %s games across %s systems\n"
         % (format(sum(len(v) for v in by_folder.values()), ","), len(by_folder)))
 
-    jobs = []     # {label, cmd}
-    skipped = []  # (label, reason)
+    # Previously-failed items (rgsx-download-failed.json) are excluded unless you retry.
+    failed_path = os.path.join(root, "rgsx-download-failed.json")
+    failed_list = []
+    try:
+        with open(failed_path, "r", encoding="utf-8-sig") as fh:
+            failed_list = json.load(fh) or []
+    except Exception:
+        failed_list = []
+    failed_by_key = {row_key(e): e for e in failed_list if isinstance(e, dict)}
+    retry_sys = (args.retry_system or "").strip().lower()
+
+    jobs = []     # {label, cmd, key, row, system}
+    skipped = []  # (title, reason)
     for row in queue:
         kind = (row.get("type") or "game").strip().lower()
+        key = row_key(row)
         if kind == "itch":
             system = str(row.get("system") or row.get("platform") or "").strip()
             if not system:
                 skipped.append(("itch homebrew", "no system given"))
+                continue
+            if key in failed_by_key and not args.retry and not (retry_sys and retry_sys == system.lower()):
+                skipped.append(("Free homebrew: " + system, "previously failed - use Retry"))
                 continue
             cmd = [sys.executable, cli, "homebrew", "-s", system, "--install"]
             if str(row.get("tag") or "").strip():
@@ -366,11 +390,15 @@ def main(argv=None):
             if str(row.get("count") or "").strip().isdigit():
                 cmd += ["-n", str(row["count"]).strip()]
             label = "Free itch.io homebrew: %s%s" % (system, (" / " + row["tag"]) if row.get("tag") else "")
-            jobs.append({"label": label, "cmd": cmd})
+            jobs.append({"label": label, "cmd": cmd, "key": key, "row": row, "system": system})
             continue
         # game
-        game, note = resolve(row, by_folder, regions, langs)
         title = row.get("title") or row.get("name") or "?"
+        system = str(row.get("system") or row.get("platform") or "").strip()
+        if key in failed_by_key and not args.retry and not (retry_sys and retry_sys in (system.lower(), str(row.get("platform") or "").lower())):
+            skipped.append((title, "previously failed - use Retry to attempt it again"))
+            continue
+        game, note = resolve(row, by_folder, regions, langs)
         if not game:
             skipped.append((title, note))
             continue
@@ -378,8 +406,11 @@ def main(argv=None):
                 or (str(game["platform"]).strip().lower(), nkey(game["name"])) in downloaded:
             skipped.append((title, "already downloaded by RGSX"))
             continue
-        label = "%s  ->  %s / %s" % (title, game["folder"], game["name"]) + (("  [%s]" % note) if note else "")
-        jobs.append({"label": label, "cmd": [sys.executable, cli, "download", "-p", game["folder"], "-g", game["name"]]})
+        # Pass the game's actual catalogue platform (a folder can hold several sources, e.g.
+        # 'SNES (Archive)' and 'SNES (RomHacks) (Archive)' both live under 'snes').
+        label = "%s  ->  %s / %s" % (title, game["platform"], game["name"]) + (("  [%s]" % note) if note else "")
+        jobs.append({"label": label, "cmd": [sys.executable, cli, "download", "-p", game["platform"], "-g", game["name"]],
+                     "key": key, "row": row, "system": game["folder"]})
 
     log("Plan: %d to download, %d skipped.\n" % (len(jobs), len(skipped)))
     for j in jobs:
@@ -391,7 +422,7 @@ def main(argv=None):
         log("\nDry run only - nothing was downloaded.")
         return 0
     if not jobs:
-        log("\nNothing to download.")
+        log("\nNothing to download." + (" (%d previously-failed item(s) were skipped - run with --retry, or use Retry on the page.)" % len(skipped) if skipped else ""))
         return 0
 
     if not args.yes:
@@ -408,6 +439,7 @@ def main(argv=None):
     env["RGSX_HEADLESS"] = "1"
     report = []
     ok = fail = 0
+    ok_keys, newly_failed = set(), []
     log("")
     for i, j in enumerate(jobs, 1):
         log("[%d/%d] %s" % (i, len(jobs), j["label"]))
@@ -419,11 +451,30 @@ def main(argv=None):
         status = "OK" if rc == 0 else "FAILED (exit %s)" % rc
         if rc == 0:
             ok += 1
+            ok_keys.add(j["key"])
         else:
             fail += 1
+            rec = dict(j["row"])
+            rec["reason"] = "RGSX exit %s" % rc
+            rec["system"] = j.get("system") or rec.get("system") or rec.get("platform") or ""
+            rec["at"] = datetime.now().isoformat(timespec="seconds")
+            newly_failed.append(rec)
         log("   -> %s\n" % status)
         report.append((status, j["label"]))
         time.sleep(1.0)
+
+    # Update the failed list: drop anything that succeeded this run, add/refresh new failures.
+    merged = {k: e for k, e in failed_by_key.items() if k not in ok_keys}
+    for rec in newly_failed:
+        merged[row_key(rec)] = rec
+    try:
+        if merged:
+            with open(failed_path, "w", encoding="utf-8") as fh:
+                json.dump(list(merged.values()), fh, indent=2)
+        elif os.path.isfile(failed_path):
+            os.remove(failed_path)
+    except Exception as e:
+        log("Could not update the failed list: %s" % e)
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     report_path = os.path.join(root, "rgsx-download-report-%s.txt" % stamp)
@@ -442,17 +493,25 @@ def main(argv=None):
     except Exception as e:
         log("Could not write report: %s" % e)
 
-    if fail == 0 and not args.keep:
-        for name in ("rgsx-download-queue.json", "rgsx-download-queue.csv"):
-            try:
-                os.remove(os.path.join(root, name))
-            except OSError:
-                pass
-        log("Download list cleared.")
-    elif fail:
-        log("Some items failed, so the list was kept. Fix the issue and run again\n"
-            "(anything already downloaded is skipped), or clear it in the Library Checker.")
+    # Remove the items that downloaded OK from the queue; keep the rest (failed/skipped) for next time.
+    remaining = [r for r in queue if row_key(r) not in ok_keys]
+    try:
+        if remaining and not (len(remaining) == len(queue) and not ok):
+            with open(os.path.join(root, "rgsx-download-queue.json"), "w", encoding="utf-8") as fh:
+                json.dump(remaining, fh, indent=2)
+        if not remaining and not args.keep:
+            for name in ("rgsx-download-queue.json", "rgsx-download-queue.csv"):
+                try:
+                    os.remove(os.path.join(root, name))
+                except OSError:
+                    pass
+            log("Everything downloaded - list cleared.")
+    except Exception as e:
+        log("Could not update the download list: %s" % e)
 
+    if fail:
+        log("%d item(s) failed and were tagged; they'll be skipped next time unless you Retry (on the page,\n"
+            "or run with --retry / --retry-system <system>)." % fail)
     log("\nDone. %d ok, %d failed, %d skipped." % (ok, fail, len(skipped)))
     return 0 if fail == 0 else 1
 
