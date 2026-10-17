@@ -1688,8 +1688,20 @@ function settingsKeys() {
 }
 function settingsItch() {
   return `<div class="panel"><h2>itch.io data</h2>
-    <p class="muted">itch.io doesn't let other pages read its feeds, so the free-games list is bundled (${D(ITCH_BUNDLED.fetched)}). To refresh it: open <a href="https://itch.io" target="_blank" rel="noopener">itch.io</a>, open the browser console (F12 → Console), paste the refresh script and press Enter. It downloads <code>itch-free.json</code>; import that file here.</p>
-    <div class="row"><button data-act="copyItch">Copy refresh script</button><label>Import <input type="file" id="itchFile" accept=".json"></label>${S.itch ? `<span class="tag ok">Using refreshed data from ${D(S.itch.fetched)}</span><button class="small" data-act="dropItch">Use bundled data</button>` : ''}</div></div>`;
+    <p>The <b>Free games</b> tab shows top-rated free itch.io games. itch.io doesn't let other web pages read its feeds, so this page ships with a <b>bundled snapshot</b> (from ${D(ITCH_BUNDLED.fetched)}). It works offline and you don't have to do anything — refresh it only when you want newer listings.</p>
+    <h3>Refresh the list (optional)</h3>
+    <p class="muted">You run a small script once, on itch.io itself, which reads itch's public "top rated free" feeds and saves a file you then load back here. It's safe and read-only; no login or key is needed.</p>
+    <ol>
+      <li>Click <b>Copy refresh script</b> below (it copies to your clipboard; if your browser blocks that, it downloads <code>itch-refresh.js</code> instead — open it and copy the text).</li>
+      <li>Open <a href="https://itch.io" target="_blank" rel="noopener">itch.io</a> in <b>Chrome or Edge</b> (any page on the site is fine).</li>
+      <li>Open the developer console: press <b>F12</b> (or Ctrl+Shift+J on Windows/Linux, ⌥⌘J on Mac) and click the <b>Console</b> tab.</li>
+      <li>If the console shows a warning about pasting, type <code>allow pasting</code> and press Enter first (Chrome/Edge do this once for safety).</li>
+      <li><b>Paste</b> the script and press <b>Enter</b>. It works through the feeds one at a time, logging progress like <code>itch refresh 12/80</code> — leave the tab open for <b>a few minutes</b>.</li>
+      <li>When it finishes it logs <code>Done: itch-free.json downloaded</code> and saves <code>itch-free.json</code> to your <b>Downloads</b> folder.</li>
+      <li>Come back here, click <b>Import</b> and choose that <code>itch-free.json</code>.</li>
+    </ol>
+    <div class="row"><button class="primary" data-act="copyItch">Copy refresh script</button><label>Import <input type="file" id="itchFile" accept=".json"></label>${S.itch ? `<span class="tag ok">Using refreshed data from ${D(S.itch.fetched)}</span><button class="small" data-act="dropItch">Use bundled data</button>` : `<span class="tag">Using bundled data</span>`}</div>
+    <p class="muted" style="margin-top:12px">Nothing here needs an itch.io account. (That's separate from <b>installing</b> free homebrew through RGSX, which uses an itch.io API key set under <b>RGSX › Sources</b>.)</p></div>`;
 }
 const RANK_LABEL = { votes: 'members\' votes', rating: 'ratings', players: 'players', popularity: 'popularity', editorial: 'editorial ranking', curated: 'unranked selection', database: 'database' };
 function settingsSystem(k) {
@@ -2029,7 +2041,14 @@ function viewHelp() {
     <li><b>Passphrase</b> mode derives the key from your passphrase (PBKDF2, 310,000 rounds). Nothing that can decrypt is stored; you unlock once per visit, on any computer.</li>
     <li>Each key is only sent to its own service, as part of that service's API requests.</li></ul>
     <p class="muted">The RetroAchievements list checks player counts for the games in the built-in lists, one request at a time, so it takes a few minutes per system. Results are cached.</p>`)}
-  ${sec('free', 'Free games', `<p>Top-rated free games from itch.io by genre: retro homebrew ROMs for your systems, or PC and browser games. Open a game's page to download it, then put the ROM in the system's folder (shown on the page) and update your game lists in RetroBat. Games you already have are marked Installed. To refresh the data, see <b>Settings › itch.io data</b>.</p>`)}
+  ${sec('free', 'Free games', `<p>Top-rated free games from itch.io by genre: retro homebrew ROMs for your systems, or PC and browser games. Open a game's page to download it, then put the ROM in the system's folder (shown on the page) and update your game lists in RetroBat. Games you already have are marked Installed.</p>
+    <p>The list is a <b>bundled snapshot</b> that works offline, so you don't have to do anything. To fetch newer listings (optional):</p>
+    <ol><li>In <b>Settings › itch.io data</b>, click <b>Copy refresh script</b>.</li>
+      <li>Open <b>itch.io</b> in Chrome or Edge (any page, no login needed).</li>
+      <li>Open the console — press <b>F12</b> (or Ctrl+Shift+J, or ⌥⌘J on Mac) and click <b>Console</b>. If it warns about pasting, type <code>allow pasting</code> and press Enter first.</li>
+      <li><b>Paste</b> the script and press <b>Enter</b>. It reads itch's public free-game feeds and logs progress like <code>itch refresh 12/80</code>; leave the tab open for a few minutes.</li>
+      <li>It downloads <code>itch-free.json</code> to your Downloads. Back in <b>Settings › itch.io data</b>, click <b>Import</b> and choose that file.</li></ol>
+    <p>This only refreshes what the Free games tab <i>shows</i>. <b>Installing</b> free homebrew through RGSX (the "Send free homebrew to RGSX" button) is separate and uses an itch.io API key set under <b>RGSX › Sources</b>.</p>`)}
   ${sec('files', 'Files and privacy', `<ul><li><code>${CONFIG_NAME}</code>: your settings, website lists, wishlist and encrypted API keys.</li><li><code>${CACHE_DIR}</code>: scan results, downloaded lists and the RGSX catalogue index. Safe to delete.</li></ul>
     <p class="muted">The page never changes your ROMs or the RGSX database. Internet requests go only to Wikidata, Wikipedia and Wikimedia (lists), and to RetroAchievements and RAWG if you add keys.</p>`)}
   ${sec('trouble', 'Troubleshooting', `<ul><li><b>"This browser can't open folders"</b>: use Chrome or Edge.</li>
